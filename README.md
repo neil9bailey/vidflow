@@ -14,7 +14,8 @@ never touches your originals until you say so.
 | Key | |
 |---|---|
 | `C` | Cull mode on/off |
-| `P` / `X` / `U` | Pick (keep) / Reject / clear — then it moves to the next clip |
+| `P` / `X` | Pick (keep) / Reject — then it moves to the next clip |
+| `U` | Clear the clip's decision |
 | `1`–`5`, `0` | Star rating / clear (numpad too) |
 | `N` | Next undecided clip |
 | `F5`–`F9` | Move the clip to one of five bin folders right away |
@@ -53,17 +54,35 @@ when you click it. Details: [PRIVACY.md](PRIVACY.md).
 
 ## Install
 
-Download `VidFlow.exe` from the [releases page](https://github.com/neil9bailey/vidflow/releases)
-(check it against `SHA256SUMS.txt` if you like) and
-run it. The exe is not code-signed yet, so Windows SmartScreen may ask you to confirm the first
-time. The first start unpacks the playback
-engine once (a few seconds) to `%LOCALAPPDATA%\VidFlow\engine`. Settings live in
-`%APPDATA%\VidFlow\VidFlow.ini`; put an empty `VidFlow.ini` next to the exe for portable mode.
+All free:
+
+- **Microsoft Store** *(coming soon)*: signed by Microsoft, so no security warnings, and the Store
+  keeps it up to date.
+- **Portable exe**: download `VidFlow.exe` from the
+  [releases page](https://github.com/neil9bailey/vidflow/releases) and run it. It isn't
+  code-signed (certificates cost money and VidFlow is free), so the first time Windows shows
+  *"Windows protected your PC"*: click **More info › Run anyway**. On PCs with Smart App Control
+  turned on, Windows blocks unsigned apps outright; use the Store edition there.
+- **winget** *(once listed)*: `winget install NeilBailey.VidFlowPlayer`
+
+The portable exe unpacks its playback engine once on first start (a few seconds) to
+`%LOCALAPPDATA%\VidFlow\engine`. Settings live in `%APPDATA%\VidFlow\VidFlow.ini`; put an empty
+`VidFlow.ini` next to the exe for portable mode.
+
+**Checking a download.** Each release lists SHA-256 checksums in `SHA256SUMS.txt`
+(`Get-FileHash VidFlow.exe`). From 1.0.0-beta.5 on, GitHub also attests that `VidFlow.exe` and the
+zip were built by this repository's release workflow from the tagged source; with the
+[GitHub CLI](https://cli.github.com):
+
+```powershell
+gh attestation verify VidFlow.exe --repo neil9bailey/vidflow
+```
 
 ## Building
 
 Windows 10/11 x64 with Visual Studio Build Tools (MSBuild component, for the C# compiler);
-Python 3 + Pillow for the icon; ffmpeg only to regenerate test media.
+Python 3 + Pillow for the icon and Store tiles; ffmpeg only to regenerate test media; the
+Windows 10/11 SDK only for the Store package.
 
 ```powershell
 .\tools\fetch-engine.ps1     # one time: the pinned engine build, SHA-256 checked (THIRD-PARTY-NOTICES.md)
@@ -72,6 +91,7 @@ Python 3 + Pillow for the icon; ffmpeg only to regenerate test media.
 .\tools\run-core-tests.ps1   # unit-level checks, no window (what CI runs)
 .\tools\make_testmedia.ps1   # test clips, needs ffmpeg on PATH
 .\tools\e2e.ps1              # 450+ end-to-end checks, run on a hidden desktop (silent, off-screen)
+.\tools\package-store.ps1    # Microsoft Store edition (MSIX) -> obj\store\, see docs/STORE.md
 ```
 
 How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md). Design and module contracts:

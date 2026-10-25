@@ -623,6 +623,11 @@ namespace VidFlow.Ui.Dialogs
                 bool canRemove = _registry != null && _registry.IsKnown(ActionIds.UnregisterFileTypes);
                 if (!canAdd && !canRemove) return;
                 AddSection(t, "Open With");
+                if (AppInfo.IsPackaged)
+                {
+                    AddHint(t, "Windows lists VidFlow in Explorer's “Open with” menu for video and audio files automatically in this edition. To make it the default player, choose it in Windows Settings › Apps › Default apps.");
+                    return;
+                }
                 var add = CreateButton("Add VidFlow to Open With…");
                 add.Glyph = Glyphs.Add;
                 var remove = CreateButton("Remove from Open With");
@@ -959,6 +964,7 @@ namespace VidFlow.Ui.Dialogs
                 var rows = new List<DarkList.Row>();
                 foreach (var id in _keyOrder)
                 {
+                    if (ActionCatalog.IsHiddenInEdition(id)) continue;   // still in _keys, so a saved binding is kept
                     string title = TitleOf(id), cat = DisplayCategoryOf(id), keys = KeyNames.FormatList(_keys[id]);
                     bool match = tokens.All(t =>
                         title.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0 ||

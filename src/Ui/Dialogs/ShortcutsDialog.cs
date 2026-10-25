@@ -137,7 +137,7 @@ namespace VidFlow.Ui.Dialogs
                 var list = new List<Entry>();
                 foreach (var cat in ActionCatalog.Categories)
                 {
-                    var defs = ActionCatalog.All.Where(a => a.Category == cat).ToList();
+                    var defs = ActionCatalog.All.Where(a => a.Category == cat && !ActionCatalog.IsHiddenInEdition(a.Id)).ToList();
                     // Global actions under the category; Cull layer actions in the "Cull mode" group after it.
                     foreach (var def in defs.Where(d => d.Layer == null)) list.Add(EntryFor(def, cat, registry, settings));
                     foreach (var def in defs.Where(d => d.Layer == ActionCatalog.LayerCull)) list.Add(EntryFor(def, CullModeCategory, registry, settings));

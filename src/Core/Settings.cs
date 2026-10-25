@@ -137,13 +137,41 @@ namespace VidFlow.Core
 
         public static string DefaultDirectory
         {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VidFlow"); }
+            get { return AppInfo.SettingsFolder; }
         }
 
         public static string ResolvePath()
         {
+            // Portable mode (a VidFlow.ini next to the exe) can't apply to the Store edition, whose
+            // install folder is read-only.
             string portable = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "VidFlow.ini");
-            return File.Exists(portable) ? portable : Path.Combine(DefaultDirectory, "VidFlow.ini");
+            return !AppInfo.IsPackaged && File.Exists(portable) ? portable : Path.Combine(DefaultDirectory, "VidFlow.ini");
+        }
+
+        // First start of the Store edition: copy the portable exe's settings, cull decisions, mpv
+        // config and watch-later data from %APPDATA%\VidFlow into the package's own folder. The
+        // originals are only read, so the portable exe keeps working with them. Best effort, like
+        // MigrateFromGlance; call before Load() when the default settings location is used.
+        public static void MigrateIntoPackage()
+        {
+            try
+            {
+                if (AppInfo.PackageDataFolder == null) return;
+                string from = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VidFlow");
+                string ini = Path.Combine(from, "VidFlow.ini");
+                if (!File.Exists(ini) || File.Exists(Path.Combine(DefaultDirectory, "VidFlow.ini"))) return;
+                System.IO.Directory.CreateDirectory(DefaultDirectory);
+                File.Copy(ini, Path.Combine(DefaultDirectory, "VidFlow.ini"), false);
+                string decisions = Path.Combine(from, "cull-decisions.tsv");
+                if (File.Exists(decisions)) File.Copy(decisions, Path.Combine(DefaultDirectory, "cull-decisions.tsv"), false);
+                CopyTree(Path.Combine(from, "mpv"), Path.Combine(DefaultDirectory, "mpv"));
+                CopyTree(Path.Combine(from, "watch_later"), Path.Combine(DefaultDirectory, "watch_later"));
+                Log.Info("copied the portable settings from " + from + " into the package folder");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("settings copy into the package folder skipped: " + ex.Message);
+            }
         }
 
         // One-time move from the beta name "Glance": when there is no VidFlow.ini yet, copy the old

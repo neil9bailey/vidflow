@@ -72,7 +72,7 @@ namespace VidFlow.Core
                 if (s == null) return false;
                 string[] parts = new StreamReader(s).ReadToEnd().Trim().Split(' ');
                 if (parts.Length < 2 || parts[0].Length < 16 || !long.TryParse(parts[1], out size)) return false;
-                string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VidFlow", "engine");
+                string root = Path.Combine(AppInfo.LocalDataFolder, "engine");
                 target = Path.Combine(root, parts[0].Substring(0, 16).ToLowerInvariant(), LibMpv.Dll);
                 return true;
             }

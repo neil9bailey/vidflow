@@ -134,9 +134,9 @@ namespace VidFlow.Ui
                 arg => { PlaylistSort s; return TryParseSort(arg, out s); });
             r(ActionIds.TogglePlaylistSortOrder, TogglePlaylistSortOrder, () => _playlist.Descending, null);
 
-            // ---- file types ----
-            r(ActionIds.RegisterFileTypes, RegisterFileTypesAction, null, null);
-            r(ActionIds.UnregisterFileTypes, UnregisterFileTypesAction, null, () => FileAssociations.IsRegistered(Application.ExecutablePath));
+            // ---- file types (the Store edition's file types are declared in its package manifest) ----
+            r(ActionIds.RegisterFileTypes, RegisterFileTypesAction, null, () => !AppInfo.IsPackaged);
+            r(ActionIds.UnregisterFileTypes, UnregisterFileTypesAction, null, () => !AppInfo.IsPackaged && FileAssociations.IsRegistered(Application.ExecutablePath));
         }
 
         partial void FeatureMenus()

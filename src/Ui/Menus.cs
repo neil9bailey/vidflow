@@ -812,18 +812,7 @@ namespace VidFlow.Ui
                     Item(ActionIds.ToggleOsd),
                     Item(ActionIds.ToggleOsdStatus),
                     Item(ActionIds.ShowInfoOsd)),
-                Sub("File",
-                    Item(ActionIds.ShowInFolder),
-                    Item(ActionIds.RenameFile),
-                    Item(ActionIds.CopyPath),
-                    Item(ActionIds.MediaInfo),
-                    Sep(),
-                    Item(ActionIds.RegisterFileTypes, "Add VidFlow to “Open With”…"),
-                    Item(ActionIds.UnregisterFileTypes),
-                    Sep(),
-                    Item(ActionIds.DeleteFile),
-                    Sep(),
-                    Item(ActionIds.CloseFile)),
+                Sub("File", FileItems()),
                 Sep(),
                 Item(ActionIds.Settings),
                 Item(ActionIds.Shortcuts),
@@ -832,6 +821,17 @@ namespace VidFlow.Ui
                 Item(ActionIds.About),
                 Sep(),
                 Item(ActionIds.Exit));
+        }
+
+        // The Store edition leaves "Open with" to Windows (its package declares the file types), so
+        // the two registration items are left out there.
+        private ToolStripItem[] FileItems()
+        {
+            var items = new List<ToolStripItem> { Item(ActionIds.ShowInFolder), Item(ActionIds.RenameFile), Item(ActionIds.CopyPath), Item(ActionIds.MediaInfo), Sep() };
+            if (!ActionCatalog.IsHiddenInEdition(ActionIds.RegisterFileTypes))
+                items.AddRange(new ToolStripItem[] { Item(ActionIds.RegisterFileTypes, "Add VidFlow to “Open With”…"), Item(ActionIds.UnregisterFileTypes), Sep() });
+            items.AddRange(new ToolStripItem[] { Item(ActionIds.DeleteFile), Sep(), Item(ActionIds.CloseFile) });
+            return items.ToArray();
         }
 
         // Small drop-downs for control-bar buttons.

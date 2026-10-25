@@ -41,7 +41,11 @@ namespace VidFlow
             if (opt.LogPath != null) Log.Open(opt.LogPath);
             else if (opt.Automation) Log.Open(LaunchOptions.DefaultLogPath);
 
-            if (opt.SettingsPath == null) Settings.MigrateFromGlance(); // beta testers keep their settings
+            if (opt.SettingsPath == null)
+            {
+                Settings.MigrateIntoPackage();  // Store edition: start from the portable exe's settings
+                Settings.MigrateFromGlance();   // beta testers keep their settings
+            }
             var settings = Settings.Load(opt.SettingsPath);
             string pipe = opt.PipeName ?? ControlChannel.DefaultPipeName;
 

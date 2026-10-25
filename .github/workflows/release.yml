@@ -4,6 +4,9 @@ name: Release
 # release with the exe, the zip, the engine's corresponding source and SHA256SUMS.txt.
 # Nothing is public until a maintainer reviews the draft on GitHub and presses Publish.
 # The tag must match the VERSION file, and CHANGELOG.md needs a dated section for it.
+# The exe and zip get a GitHub build-provenance attestation (gh attestation verify). When the
+# Partner Center identity is saved as repository variables (docs/STORE.md), the Microsoft Store
+# package is built too, as a workflow artifact to upload to Partner Center.
 
 on:
   push:
@@ -16,6 +19,10 @@ jobs:
   build:
     runs-on: windows-2025
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write      # signs the provenance attestation (Sigstore, keyless)
+      attestations: write  # stores it on GitHub
     defaults:
       run:
         shell: pwsh
@@ -58,6 +65,13 @@ jobs:
         env:
           VIDFLOW_VERSION: ${{ steps.version.outputs.version }}
         run: ./tools/package-release.ps1 -Version $env:VIDFLOW_VERSION -OutDir obj/release-assets -Release
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            obj/release-assets/VidFlow.exe
+            obj/release-assets/VidFlow-*-win-x64.zip
 
       - name: Upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -118,6 +132,52 @@ jobs:
           name: engine-source
           path: engine-source/
           if-no-files-found: error
+
+  store-package:
+    # Microsoft Store edition: an unsigned MSIX (the Store signs it), kept as a workflow artifact for
+    # upload to Partner Center, never attached to the release. Skipped until the repository variables
+    # STORE_IDENTITY_NAME, STORE_PUBLISHER and STORE_PUBLISHER_DISPLAY_NAME hold the Partner Center
+    # identity (docs/STORE.md); STORE_DISPLAY_NAME only if the reserved name isn't "VidFlow Player".
+    needs: build
+    if: vars.STORE_IDENTITY_NAME != ''
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Cache engine archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: third_party/download
+          key: engine-${{ hashFiles('tools/fetch-engine.ps1') }}
+
+      - name: Fetch engine (pinned, SHA-256 checked)
+        run: ./tools/fetch-engine.ps1
+
+      - name: Package for the Store
+        env:
+          VIDFLOW_VERSION: ${{ needs.build.outputs.version }}
+          STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+          STORE_DISPLAY_NAME: ${{ vars.STORE_DISPLAY_NAME || 'VidFlow Player' }}
+        run: |
+          ./tools/package-store.ps1 -Version $env:VIDFLOW_VERSION -IdentityName $env:STORE_IDENTITY_NAME `
+            -Publisher $env:STORE_PUBLISHER -PublisherDisplayName $env:STORE_PUBLISHER_DISPLAY_NAME `
+            -DisplayName $env:STORE_DISPLAY_NAME
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: store-msix
+          path: obj/store/*.msix
+          if-no-files-found: error
+          retention-days: 90
 
   draft:
     needs: [build, engine-source]

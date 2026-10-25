@@ -116,6 +116,27 @@ static class CoreTest
         Check(UpdateCheck.TryParseVersion("release-1.4", out v) && v == new Version(1, 4, 0), "prefixed tag parses");
         Check(!UpdateCheck.TryParseVersion("engine-20261010", out v), "engine mirror tag is not a version");
         Check(UpdateCheck.Evaluate("{\"tag_name\":\"engine-20261010\"}", new Version(1, 0, 0), AppInfo.Repo, 200).Status == UpdateStatus.Failed, "engine mirror never offered as an update");
+
+        // Store edition: an ordinary process is not packaged, and the package declares exactly the
+        // file types the player registers itself.
+        Check(!AppInfo.IsPackaged, "an unpackaged process is not the Store edition");
+        string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        Check(AppInfo.PackageDataFolder == null && Settings.DefaultDirectory == Path.Combine(roaming, "VidFlow") &&
+              LaunchOptions.DefaultLogPath == Path.Combine(local, "VidFlow", "vidflow.log"), "unpackaged: settings and logs in the usual AppData folders");
+        Check(AppInfo.PackageDataFolderFor(@"C:\Users\u\AppData\Local", "NeilBailey.VidFlowPlayer_8wekyb3d8bbwe") == @"C:\Users\u\AppData\Local\Packages\NeilBailey.VidFlowPlayer_8wekyb3d8bbwe\LocalState" &&
+              AppInfo.PackageDataFolderFor(local, "") == null, "Store edition data folder is the package's LocalState");
+        Check(ActionCatalog.IsHiddenInEdition(ActionIds.CheckForUpdates, true) && ActionCatalog.IsHiddenInEdition(ActionIds.RegisterFileTypes, true) &&
+              ActionCatalog.IsHiddenInEdition(ActionIds.UnregisterFileTypes, true) && !ActionCatalog.IsHiddenInEdition(ActionIds.PlayPause, true) &&
+              !ActionCatalog.IsHiddenInEdition(ActionIds.CheckForUpdates, false) && !ActionCatalog.IsHiddenInEdition(ActionIds.CheckForUpdates),
+              "Store edition hides exactly updates and Open With (and nothing when unpackaged)");
+        string manifestPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\..\packaging\store\AppxManifest.xml");
+        var declared = new List<string>();
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(manifestPath), @"<uap:FileType>\s*([^<]+?)\s*</uap:FileType>"))
+            declared.Add(m.Groups[1].Value.ToLowerInvariant());
+        var registered = VidFlow.Ui.FileAssociations.DefaultExtensions();
+        Check(declared.Count > 0 && declared.Count == registered.Count && declared.All(registered.Contains),
+            "Store manifest file types match the player's (" + declared.Count + " declared, " + registered.Count + " registered; missing: " +
+            string.Join(" ", registered.Where(e => !declared.Contains(e))) + "; extra: " + string.Join(" ", declared.Where(e => !registered.Contains(e))) + ")");
         File.Delete(ini);
 
         Out(fails == 0 ? "ALL OK" : ("FAILURES: " + fails));

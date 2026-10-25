@@ -39,7 +39,7 @@ namespace VidFlow.Core
 
         public static string DefaultLogPath
         {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VidFlow", "vidflow.log"); }
+            get { return Path.Combine(AppInfo.LocalDataFolder, "vidflow.log"); }
         }
 
         // True when any per-playback option was given (forwarded on single-instance hand-off).
