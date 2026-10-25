@@ -89,14 +89,12 @@ function Invoke-CullSession($set, [string[]]$open, [scriptblock]$body) {
                      '--log', "`"$(Join-Path $set.Cfg 'vidflow.log')`"") + @($open | ForEach-Object { "`"$_`"" })
         $p = Start-Process -FilePath $Exe -ArgumentList $argList -PassThru
         $script:Pipe = $cullPipe
-        $sw = [Diagnostics.Stopwatch]::StartNew(); $up = $false
-        while (-not $up -and $sw.ElapsedMilliseconds -lt 15000) { try { $up = (Ctl 'activate') -eq 'ok' } catch { Start-Sleep -Milliseconds 150 } }
-        if (-not $up) { throw "cull VidFlow did not open its control pipe" }
+        if (-not (Wait-Pipe 15000)) { throw "cull VidFlow did not open its control pipe" }
         & $body $p
     } finally {
         if ($p) {
             try { Ctl 'quit' | Out-Null } catch { }
-            if (-not $p.WaitForExit(8000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+            if (-not $p.WaitForExit((Scaled 8000))) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
         }
         $script:Pipe = $savedPipe
     }
@@ -104,6 +102,12 @@ function Invoke-CullSession($set, [string[]]$open, [scriptblock]$body) {
 
 function Wait-CullIdle([int]$ms = 15000) { WaitFor { param($d) -not $d.cull.busy } $ms 'cull file job finished' }
 function CullMk($d, [int]$i) { return "$($d.cull.marks[$i][0]),$($d.cull.marks[$i][1])" }
+# Before checking that a key did NOT advance or change something, give a wrong change time to show.
+function Settle-Cull { Start-Sleep -Milliseconds (Scaled 300) }
+# A dialog of process $p with this title (IntPtr.Zero when it does not appear).
+function Find-CullWindow($p, [string]$title) {
+    return Poll { [CullWin]::Find($p.Id, $title) } { param($h) $h -ne [IntPtr]::Zero } 15000 150
+}
 
 Test 'cull-decisions' {
     $set = New-CullSet 'decide'
@@ -128,7 +132,7 @@ Test 'cull-decisions' {
         Check '0 clears the rating' ((CullMk $d 2) -eq '0,0' -and $d.lastOsd -eq 'Rating cleared') "$(CullMk $d 2) $($d.lastOsd)"
         Key @('4') | Out-Null
         Act 'PlayIndex:0'; WaitFor { param($d) $d.path -like '*clip01*' } 5000 'back to clip01' | Out-Null
-        Key @('P') | Out-Null; Start-Sleep -Milliseconds 300; $d = Dump
+        Key @('P') | Out-Null; Settle-Cull; $d = Dump
         Check 'P on a pick takes it back (no advance)' ((CullMk $d 0) -eq '0,0' -and $d.path -like '*clip01*' -and $d.lastOsd -eq 'Pick removed') "$(CullMk $d 0) $($d.path) $($d.lastOsd)"
         Key @('X') | Out-Null
         $d = WaitFor { param($d) $d.path -like '*clip02*' } 5000 'advance to clip02'
@@ -139,7 +143,7 @@ Test 'cull-decisions' {
         $d = WaitFor { param($d) $d.path -like '*clip03*' } 5000 'N -> clip03'
         Check 'N jumps to the next undecided clip' ($d.path -like '*clip03*') $d.path
         Act 'PlayIndex:4'; WaitFor { param($d) $d.path -like '*clip05*' } 5000 'clip05' | Out-Null
-        Key @('P') | Out-Null; Start-Sleep -Milliseconds 300; $d = Dump
+        Key @('P') | Out-Null; Settle-Cull; $d = Dump
         Check 'end of list: no wrap, says what is left' ($d.path -like '*clip05*' -and $d.lastOsd -like '✓ Pick · Last clip · 3 undecided*') "$($d.path) | $($d.lastOsd)"
         Act 'PlayIndex:1'; WaitFor { param($d) $d.path -like '*clip02*' } 5000 'clip02' | Out-Null
         Key @('P') | Out-Null; WaitFor { param($d) $d.path -like '*clip03*' } 5000 'clip03' | Out-Null
@@ -148,7 +152,7 @@ Test 'cull-decisions' {
         Key @('U') | Out-Null
         Act 'PlayIndex:3'; WaitFor { param($d) $d.path -like '*clip04*' } 5000 'clip04' | Out-Null
         Key @('P') | Out-Null; WaitFor { param($d) $d.path -like '*clip05*' } 5000 'clip05' | Out-Null
-        Key @('P') | Out-Null; Start-Sleep -Milliseconds 300; $d = Dump
+        Key @('P') | Out-Null; Settle-Cull; $d = Dump
         Check 'last decision: "All clips decided"' ($d.lastOsd -eq '✓ Pick · All clips decided') $d.lastOsd
         Check '5 / 5 decided, panel "3 ✓ · 2 ✕ · 0 left"' ($d.cull.progressText -eq '5 / 5 decided' -and $d.cull.panelSummary -eq '3 ✓ · 2 ✕ · 0 left') "$($d.cull.progressText) | $($d.cull.panelSummary)"
         # Outside cull mode the layer is off: X is the global subtitle-delay key again.
@@ -207,7 +211,7 @@ Test 'cull-filter' {
         $d = WaitFor { param($d) $d.path -like '*clip05*' } 5000 'skips picked clip04'
         Check 'auto-advance skips clips the filter hides' ($d.path -like '*clip05*') $d.path
         Check 'undecided view shrinks as clips get decided' ($d.cull.panelVisible -eq 1) "$($d.cull.panelVisible)"
-        Key @('X') | Out-Null; Start-Sleep -Milliseconds 300; $d = Dump
+        Key @('X') | Out-Null; Settle-Cull; $d = Dump
         Check 'empty undecided view, "All clips decided"' ($d.cull.panelVisible -eq 0 -and $d.lastOsd -eq '✕ Reject · All clips decided') "$($d.cull.panelVisible) $($d.lastOsd)"
         & (Join-Path $root 'tools\capture.ps1') -ProcessId $args[0].Id -Out (Join-Path $work 'shots\cull-panel-undecided.png') | Out-Null
         Act 'CullFilter:all'
@@ -278,7 +282,7 @@ Test 'cull-rename' {
         Act 'RenameFile:r2.mp4'
         $r2 = Join-Path $set.Clips 'r2.mp4'
         $d = WaitFor { param($d) $d.path -eq $r2 -and -not $d.cull.busy -and $d.duration -gt 0 } 10000 'renamed while playing'
-        Start-Sleep -Milliseconds 400; $d = Dump
+        Start-Sleep -Milliseconds (Scaled 400); $d = Dump
         Check 'renamed while playing, still playing' ((Test-Path -LiteralPath $r2) -and -not $d.paused) "paused=$($d.paused)"
         $bad = Ctl 'action' @('RenameFile:bad/name.mp4')
         $taken = Ctl 'action' @('RenameFile:clip02_portrait_60fps.mp4')
@@ -400,47 +404,45 @@ Test 'cull-dialogs' {
         # The 'action' call blocks while a modal is open (and the pipe serves one request at a time),
         # so it runs in a job; nothing else talks to the pipe until the dialog is closed.
         $job = Start-Job -ScriptBlock { param($r, $pipe) & "$r\tools\vidflowctl.ps1" -Pipe $pipe -TimeoutMs 5000 action CullCommit } -ArgumentList $root, $cullPipe
-        $h = [IntPtr]::Zero
-        for ($i = 0; $i -lt 200 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 150; $h = [CullWin]::Find($p.Id, 'Apply Decisions') }
+        $h = Find-CullWindow $p 'Apply Decisions'
         Check 'Apply dialog opens (Ctrl+Enter / CullCommit)' ($h -ne [IntPtr]::Zero)
         if ($h -ne [IntPtr]::Zero) {
             Start-Sleep -Milliseconds 400
             & (Join-Path $root 'tools\capture.ps1') -ProcessId $p.Id -Title 'Apply Decisions' -IncludeOwned -Out (Join-Path $work 'shots\cull-apply-dialog.png') | Out-Null
             [CullWin]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null   # WM_CLOSE = Cancel
         }
-        Wait-Job $job -Timeout 20 | Out-Null; $jr = Receive-Job $job -ErrorAction SilentlyContinue; Remove-Job $job -Force
+        Wait-Job $job -Timeout ([int]((Scaled 20000) / 1000)) | Out-Null; $jr = Receive-Job $job -ErrorAction SilentlyContinue; Remove-Job $job -Force
         $left = @($set.Files | Where-Object { Test-Path -LiteralPath $_ }).Count
         $kept = @(Get-ChildItem -LiteralPath (Join-Path $set.Clips 'Keep') -File).Count
         Check 'Cancel leaves every file where it was' ($left -eq 5 -and $kept -eq 1) "files=$left keep=$kept action=$jr"
 
         $job = Start-Job -ScriptBlock { param($r, $pipe) & "$r\tools\vidflowctl.ps1" -Pipe $pipe -TimeoutMs 5000 action RenameFile } -ArgumentList $root, $cullPipe
-        $h = [IntPtr]::Zero
-        for ($i = 0; $i -lt 200 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 150; $h = [CullWin]::Find($p.Id, 'Rename File') }
+        $h = Find-CullWindow $p 'Rename File'
         Check 'F2 opens the rename prompt' ($h -ne [IntPtr]::Zero)
         if ($h -ne [IntPtr]::Zero) {
-            Start-Sleep -Milliseconds 500
-            $edit = [CullWin]::FindEdit($h)
-            $sel = [CullWin]::SendMessage($edit, 0x00B0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64()   # EM_GETSEL
-            $start = $sel -band 0xFFFF; $end = ($sel -shr 16) -band 0xFFFF
-            $text = [CullWin]::Text($edit)
+            # The dialog fills in the name and selects it as it shows: read until that has happened.
+            $got = Poll {
+                $edit = [CullWin]::FindEdit($h)
+                $sel = [CullWin]::SendMessage($edit, 0x00B0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64()   # EM_GETSEL
+                [pscustomobject]@{ Text = [CullWin]::Text($edit); Start = $sel -band 0xFFFF; End = ($sel -shr 16) -band 0xFFFF }
+            } { param($g) $g.Text -eq $cullNames[0] -and $g.Start -eq 0 -and $g.End -eq 'clip01_h264_720p30'.Length } 2000 100
+            $text = $got.Text; $start = $got.Start; $end = $got.End
             Check 'prefilled with the file name, name part selected' ($text -eq $cullNames[0] -and $start -eq 0 -and $end -eq 'clip01_h264_720p30'.Length) "text=$text sel=$start..$end"
             & (Join-Path $root 'tools\capture.ps1') -ProcessId $p.Id -Title 'Rename File' -IncludeOwned -Out (Join-Path $work 'shots\cull-rename-dialog.png') | Out-Null
             [CullWin]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
         }
-        Wait-Job $job -Timeout 20 | Out-Null; Remove-Job $job -Force
+        Wait-Job $job -Timeout ([int]((Scaled 20000) / 1000)) | Out-Null; Remove-Job $job -Force
         Check 'cancelled rename changes nothing' (Test-Path -LiteralPath $set.Files[0])
 
         # Apply through the dialog itself: its button runs the batch on a worker thread with progress.
         $job = Start-Job -ScriptBlock { param($r, $pipe) & (Join-Path $r 'tools\vidflowctl.ps1') -Pipe $pipe -TimeoutMs 5000 action CullCommit } -ArgumentList $root, $cullPipe
-        $h = [IntPtr]::Zero
-        for ($i = 0; $i -lt 200 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 150; $h = [CullWin]::Find($p.Id, 'Apply Decisions') }
-        $btn = if ($h -ne [IntPtr]::Zero) { [CullWin]::FindChild($h, 'Apply') } else { [IntPtr]::Zero }
+        $h = Find-CullWindow $p 'Apply Decisions'
+        $btn = if ($h -ne [IntPtr]::Zero) { Poll { [CullWin]::FindChild($h, 'Apply') } { param($b) $b -ne [IntPtr]::Zero } 1000 } else { [IntPtr]::Zero }
         $why = if ($h -eq [IntPtr]::Zero) { 'dialog not found: job ' + $job.State + ' ' + (Receive-Job $job -Keep -ErrorAction SilentlyContinue) + ' osd=' + (Dump).lastOsd } else { "dialog $h" }
         Check 'Apply button found' ($btn -ne [IntPtr]::Zero) $why
         if ($btn -ne [IntPtr]::Zero) { [CullWin]::PostMessage($btn, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }   # BM_CLICK
-        $closed = $false
-        for ($i = 0; $i -lt 100 -and -not $closed; $i++) { Start-Sleep -Milliseconds 150; $closed = [CullWin]::Find($p.Id, 'Apply Decisions') -eq [IntPtr]::Zero }
-        Wait-Job $job -Timeout 20 | Out-Null; Remove-Job $job -Force
+        $closed = Poll { [CullWin]::Find($p.Id, 'Apply Decisions') -eq [IntPtr]::Zero } { param($c) $c } 7500 150
+        Wait-Job $job -Timeout ([int]((Scaled 20000) / 1000)) | Out-Null; Remove-Job $job -Force
         Check 'dialog closes by itself when everything went through' $closed
         $d = WaitFor { param($d) $d.cull.lastResult -like 'Applied*' } 8000 'dialog apply result'
         Check 'dialog Apply: pick moved (taken name -> (2)), reject moved to Rejected' ((Test-Path -LiteralPath (Join-Path $set.Clips 'Keep\clip01_h264_720p30 (2).mp4')) -and
@@ -486,15 +488,14 @@ Test 'cull-apply-twice' {
         # The Apply dialog counts the one pick that moves; the two already kept are a separate line.
         $p = $args[0]
         $job = Start-Job -ScriptBlock { param($r, $pipe) & (Join-Path $r 'tools\vidflowctl.ps1') -Pipe $pipe -TimeoutMs 5000 action CullCommit } -ArgumentList $root, $cullPipe
-        $h = [IntPtr]::Zero
-        for ($i = 0; $i -lt 200 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 150; $h = [CullWin]::Find($p.Id, 'Apply Decisions') }
-        $kept = if ($h -ne [IntPtr]::Zero) { [CullWin]::FindChild($h, '2 picks are already in the Keep folder: left where they are.') } else { [IntPtr]::Zero }
+        $h = Find-CullWindow $p 'Apply Decisions'
+        $kept = if ($h -ne [IntPtr]::Zero) { Poll { [CullWin]::FindChild($h, '2 picks are already in the Keep folder: left where they are.') } { param($k) $k -ne [IntPtr]::Zero } 1000 } else { [IntPtr]::Zero }
         if ($h -ne [IntPtr]::Zero) {
             Start-Sleep -Milliseconds 400
             & (Join-Path $root 'tools\capture.ps1') -ProcessId $p.Id -Title 'Apply Decisions' -IncludeOwned -Out (Join-Path $work 'shots\cull-apply-already-kept.png') | Out-Null
             [CullWin]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null   # WM_CLOSE = Cancel
         }
-        Wait-Job $job -Timeout 20 | Out-Null; Remove-Job $job -Force
+        Wait-Job $job -Timeout ([int]((Scaled 20000) / 1000)) | Out-Null; Remove-Job $job -Force
         Check 'Apply dialog: already-kept picks shown on their own line' ($h -ne [IntPtr]::Zero -and $kept -ne [IntPtr]::Zero) "dialog=$h keptLine=$kept"
         Act 'CullCommit:apply'
         $d = WaitFor { param($d) -not $d.cull.busy -and $d.cull.lastResult -like 'Applied*' } 20000 'third apply'
@@ -520,7 +521,7 @@ Test 'cull-apply-twice' {
         Check 'F6 = CullToBin:2 (cull layer), clip02 and its .xmp in Maybe' ($r -eq 'ok CullToBin:2' -and (Test-Path -LiteralPath $m2) -and (Test-Path -LiteralPath (Join-Path $maybe 'clip02_portrait_60fps.xmp')) -and -not (Test-Path -LiteralPath $x2)) "$r | $($d.cull.lastResult)"
         Ctl 'open' @($m2) | Out-Null
         WaitFor { param($d) $d.path -eq $m2 -and $d.duration -gt 0 } 6000 'clip02 in Maybe' | Out-Null
-        $r = Key @('F6'); Start-Sleep -Milliseconds 300; $d = Dump
+        $r = Key @('F6'); Settle-Cull; $d = Dump
         Check 'F6 on a clip already in its relative bin is refused' ($r -eq 'ok CullToBin:2' -and $d.lastOsd -like '*is already in Bin 2*' -and (Test-Path -LiteralPath $m2) -and -not (Test-Path -LiteralPath (Join-Path $maybe 'Maybe'))) "$r | $($d.lastOsd)"
 
         # Rename carries the sidecar; undo brings both names back.
@@ -619,12 +620,12 @@ Test 'cull-autorepeat' {
         WaitFor { param($d) $d.path -like '*clip01*' -and $d.playlistCount -eq 5 -and $d.duration -gt 0 } 10000 'clip01' | Out-Null
         $before = Dump
         $resp = foreach ($id in 'CullReject', 'CullPick', 'CullUnflag', 'CullRate:3', 'CullNextUndecided', 'CullToBin:1', 'RenameFile:held.mp4', 'CullCommit:apply', 'ToggleCullMode') { Ctl 'action' @("CullAsRepeat:$id") }
-        Start-Sleep -Milliseconds 500; $d = Dump
+        Start-Sleep -Milliseconds (Scaled 500); $d = Dump
         $same = ($d.path -eq $before.path) -and (CullMk $d 0) -eq '0,0' -and $d.cull.mode -and $d.playlistCount -eq 5 -and $d.cull.undo -eq 0 -and
                 (Test-Path -LiteralPath $set.Files[0]) -and -not (Test-Path -LiteralPath $bin)
         Check 'auto-repeat ignored: decisions, N, bin, rename, Apply, cull toggle' $same "resp=$($resp -join ',') path=$($d.path) mark=$(CullMk $d 0) mode=$($d.cull.mode) undo=$($d.cull.undo)"
         $v0 = $d.volume
-        Ctl 'action' @('CullAsRepeat:VolumeDown') | Out-Null; $d = Dump
+        Ctl 'action' @('CullAsRepeat:VolumeDown') | Out-Null; $d = Settled { param($d) $d.volume -lt $v0 }
         Check 'other actions still repeat (VolumeDown ran)' ($d.volume -lt $v0) "$v0 -> $($d.volume)"
         $r = Key @('X')
         $d = WaitFor { param($d) $d.path -like '*clip02*' } 5000 'a real press still decides'
@@ -681,15 +682,14 @@ Test 'cull-bin-explain' {
         $p = $args[0]
         WaitFor { param($d) $d.path -like '*clip01*' -and $d.playlistCount -eq 5 -and $d.duration -gt 0 } 10000 'clip01' | Out-Null
         $job = Start-Job -ScriptBlock { param($r, $pipe) & (Join-Path $r 'tools\vidflowctl.ps1') -Pipe $pipe -TimeoutMs 5000 action 'CullToBin:3' } -ArgumentList $root, $cullPipe
-        $h = [IntPtr]::Zero
-        for ($i = 0; $i -lt 200 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 150; $h = [CullWin]::Find($p.Id, 'Bin 3 (F7)') }
+        $h = Find-CullWindow $p 'Bin 3 (F7)'
         Check 'unset bin: explanation dialog first ("Bin 3 (F7)")' ($h -ne [IntPtr]::Zero)
         if ($h -ne [IntPtr]::Zero) {
             Start-Sleep -Milliseconds 400
             & (Join-Path $root 'tools\capture.ps1') -ProcessId $p.Id -Title 'Bin 3 (F7)' -IncludeOwned -Out (Join-Path $work 'shots\cull-bin-explain.png') | Out-Null
             [CullWin]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null   # WM_CLOSE = Cancel
         }
-        Wait-Job $job -Timeout 20 | Out-Null; Remove-Job $job -Force
+        Wait-Job $job -Timeout ([int]((Scaled 20000) / 1000)) | Out-Null; Remove-Job $job -Force
         $d = Dump
         $ini = Get-Content -LiteralPath (Join-Path $set.Cfg 'settings.ini') -Raw
         Check 'Cancel: nothing moved, bin still unset' ($d.playlistCount -eq 5 -and (Test-Path -LiteralPath $set.Files[0]) -and $ini -notmatch 'CullBin3=\S') "count=$($d.playlistCount)"

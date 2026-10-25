@@ -42,10 +42,12 @@ Test 'int-dump-keys' {
         Ctl 'resize' @('1400', '700') | Out-Null
         Ctl 'open' @('--paused', $vfr) | Out-Null
         $d = WaitFor { param($d) $d.path -like '*fr_vfr_steps*' -and $d.vfr -eq $true -and $d.controlBar.vfrBadgeVisible } 8000 'VFR verdict on the bar'
+        # The readout appears with the first frame number, which can trail the verdict.
+        $d = Settled { param($d) $d.frameApproximate -eq $true -and $d.controlBar.frameText -like '≈*' }
         Check 'VFR clip: vfr true, approximate, badge shown, "≈" in the readout' ($d.frameApproximate -eq $true -and $d.controlBar.frameText -like '≈*') "text='$($d.controlBar.frameText)' timing=$($d.frameTiming)"
         Ctl 'resize' @("$($cs[0])", "$($cs[1])") | Out-Null
         # The OSD status line follows the verdict without polling (FeatureFrameTimingChanged).
-        $msg = Ctl 'get' @('osd-status-msg')
+        $msg = Poll { Ctl 'get' @('osd-status-msg') } { param($m) $m -match '≈F \$\{estimated-frame-number\}' }
         Check 'VFR clip: osd-status-msg marks "≈F"' ($msg -match '≈F \$\{estimated-frame-number\}') $msg
     } else { Write-Host '  (VFR part skipped: testmedia\frames missing; run tools\make_vfrmedia.ps1)' -ForegroundColor Yellow }
 
@@ -53,13 +55,12 @@ Test 'int-dump-keys' {
     if (Test-Path $avi) {
         Ctl 'open' @('--paused', $avi) | Out-Null
         $d = WaitFor { param($d) $d.path -like '*fr_unknown*' -and $d.frameApproximate -eq $true } 8000 'AVI verdict'
-        $sw = [Diagnostics.Stopwatch]::StartNew()
-        do { $msg = Ctl 'get' @('osd-status-msg'); if ($msg -match '≈F') { break }; Start-Sleep -Milliseconds 20 } while ($sw.ElapsedMilliseconds -lt 1000)
+        $msg = Poll { Ctl 'get' @('osd-status-msg') } { param($m) $m -match '≈F' } 1000 20
         Check 'unreadable container: osd-status-msg marks "≈F" (frame numbers are estimates)' ($msg -match '≈F \$\{estimated-frame-number\}') $msg
     }
     Ctl 'open' @($clip1) | Out-Null
     WaitFor { param($d) $d.path -like '*clip01*' -and $d.frameApproximate -eq $false } 8000 'clip01 again' | Out-Null
-    $msg = Ctl 'get' @('osd-status-msg')
+    $msg = Poll { Ctl 'get' @('osd-status-msg') } { param($m) $m -match '   F \$\{estimated-frame-number\}' -and $m -notmatch '≈' }
     Check 'back on a CFR clip: plain "F"' ($msg -match '   F \$\{estimated-frame-number\}' -and $msg -notmatch '≈') $msg
 }
 
@@ -101,8 +102,7 @@ Test 'int-markers-follow-files' {
     $d = WaitFor { param($d) $d.path -like '*int-mark-renamed.webm' } 8000 'renamed and reloaded'
     Check 'rename ok, file moved' ($r -eq 'ok' -and (Test-Path $renamed) -and -not (Test-Path $a)) "r=$r"
     # MainForm.Cull.cs reports the move through FeatureFileMoved (CullFinishJobs).
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    do { $d = Dump; if (@($d.markers).Count -eq 1) { break }; Start-Sleep -Milliseconds 100 } while ($sw.ElapsedMilliseconds -lt 3000)
+    $d = Settled { param($d) @($d.markers).Count -eq 1 }
     Check 'marker follows the rename' ((@($d.markers).Count -eq 1) -and (Near @($d.markers)[0] 1 0.03) -and (@($d.markedFiles) -contains $renamed) -and -not (@($d.markedFiles) -contains $a)) "markers=$($d.markers) files=$($d.markedFiles)"
     if (-not (@($d.markedFiles) -contains $renamed)) {
         # Not followed (see above): mark the renamed clip itself so the delete half still runs.
@@ -115,8 +115,7 @@ Test 'int-markers-follow-files' {
     Check 'renamed clip has a marker before the delete' (@((Dump).markedFiles) -contains $renamed) ''
     Ctl 'append' @($b) | Out-Null
     Act 'DeleteFileNoConfirm'
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ((Test-Path $renamed) -and $sw.ElapsedMilliseconds -lt 6000) { Start-Sleep -Milliseconds 100 }
+    Poll { Test-Path $renamed } { param($there) -not $there } 6000 | Out-Null
     $d = WaitFor { param($d) -not (@($d.markedFiles) -contains $renamed) } 3000 'markers dropped'
     Check 'deleted file: gone, its markers dropped' (-not (Test-Path $renamed) -and -not (@($d.markedFiles) -contains $renamed)) "files=$($d.markedFiles)"
     Ctl 'action' @('ClearMarkers') | Out-Null
@@ -134,36 +133,56 @@ Test 'int-long-path' {
 }
 
 Test 'int-hwdec-memo' {
-    $log = Join-Path $work 'vidflow.log'
+    # The memo lasts a session, and in the main one an earlier test may already have played AV1 long
+    # enough for the verdict (how long it stays on such a clip depends on the machine's speed): this
+    # test needs a session whose first AV1 file is its own, set up like the main one (same settings,
+    # a hardware-decoded clip first).
+    $Pipe = "$Pipe-hw"   # Ctl/Dump/WaitFor below talk to this test's own instance
+    $log = Join-Path $intDir 'hw-vidflow.log'
+    $ini = Join-Path $intDir 'hw.ini'
+    @('AutoFitWindow=false', 'WindowX=80', 'WindowY=60', 'WindowWidth=1000', 'WindowHeight=640', 'Repeat=Off', 'ThumbnailPreview=true',
+      'ConfirmDelete=true', 'SingleInstance=true', 'OsdMessages=true', 'QuickStartShown=true', 'UpdateRepo=', 'ExtraMpvOptions=ao=null') | Set-Content -Encoding UTF8 $ini
     $av1a = Join-Path $intDir 'int-av1-a.mkv'; $av1b = Join-Path $intDir 'int-av1-b.mkv'
     Copy-Item (Join-Path $media 'clip05_av1_noaudio.mkv') $av1a -Force
     Copy-Item (Join-Path $media 'clip05_av1_noaudio.mkv') $av1b -Force
-    $d0 = Dump
-    if ("$($d0.hwdec)" -eq 'no') { Write-Host '  (skipped: hardware decoding is off)' -ForegroundColor Yellow; return }
-    $codecs0 = Ctl 'get' @('hwdec-codecs')
-    $skipped0 = @($d0.hwdecMemo.skipped)
-    $n0 = Log-LineCount $log
-    Ctl 'open' @($av1a) | Out-Null
-    $d = WaitFor { param($d) $d.path -like '*int-av1-a.mkv' -and $d.frame -ge 0 -and $null -ne $d.hwdecCurrent } 15000 'first AV1 file playing'
-    # The verdict is read at the first playback restart, asynchronously.
-    $d = WaitFor { param($d) (@($d.hwdecMemo.skipped) -contains 'av1') -or (@($d.hwdecMemo.hardware) -contains 'av1') -or ($skipped0 -contains 'av1') } 6000 'hwdec verdict for av1'
-    $hwFirst = "$($d.hwdecCurrent)"
-    $codecs1 = Ctl 'get' @('hwdec-codecs')
-    if (@($d.hwdecMemo.hardware) -contains 'av1') {
-        Check 'AV1 decodes in hardware here: never skipped' (-not (@($d.hwdecMemo.skipped) -contains 'av1') -and $codecs1 -match 'av1') "hwdec=$hwFirst codecs=$codecs1"
-        return
+    $p = Start-Process -FilePath $Exe -ArgumentList @('--automation', '--pipe', $Pipe, '--settings', "`"$ini`"", '--log', "`"$log`"") -PassThru
+    try {
+        if (-not (Wait-Pipe 15000)) { throw "hwdec VidFlow did not open its control pipe" }
+        Ctl 'open' @($clip1) | Out-Null
+        WaitFor { param($d) $d.path -like '*clip01*' -and $d.frame -ge 0 } 8000 'clip01 playing' | Out-Null
+        $d0 = Dump
+        if ("$($d0.hwdec)" -eq 'no') { Write-Host '  (skipped: hardware decoding is off)' -ForegroundColor Yellow; return }
+        $codecs0 = Ctl 'get' @('hwdec-codecs')
+        $skipped0 = @($d0.hwdecMemo.skipped)
+        $n0 = Log-LineCount $log
+        Ctl 'open' @($av1a) | Out-Null
+        # Not waiting for hwdecCurrent here: after the hardware attempts fail, the copy VidFlow keeps of
+        # mpv's hwdec-current for this file may stay null (or "") - the verdict below reads mpv itself.
+        $d = WaitFor { param($d) $d.path -like '*int-av1-a.mkv' -and $d.frame -ge 0 } 15000 'first AV1 file playing'
+        # The verdict is read at the first playback restart, asynchronously.
+        $d = WaitFor { param($d) (@($d.hwdecMemo.skipped) -contains 'av1') -or (@($d.hwdecMemo.hardware) -contains 'av1') -or ($skipped0 -contains 'av1') } 6000 'hwdec verdict for av1'
+        $hwFirst = "$($d.hwdecCurrent)"
+        $codecs1 = Ctl 'get' @('hwdec-codecs')
+        if (@($d.hwdecMemo.hardware) -contains 'av1') {
+            Check 'AV1 decodes in hardware here: never skipped' (-not (@($d.hwdecMemo.skipped) -contains 'av1') -and $codecs1 -match 'av1') "hwdec=$hwFirst codecs=$codecs1"
+            return
+        }
+        Check 'AV1 fell back to software: skipped for the session' ((@($d.hwdecMemo.skipped) -contains 'av1') -and $codecs1 -notmatch '(^|,)av1(,|$)' -and $codecs0 -match 'av1') "hwdec=$hwFirst before=$codecs0 after=$codecs1"
+        $errs1 = @(Read-LogFrom $log $n0 | Where-Object { $_ -match 'ERROR' -and $_ -match 'mpv\[' }).Count
+        $n1 = Log-LineCount $log
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        Ctl 'open' @($av1b) | Out-Null
+        $d = WaitFor { param($d) $d.path -like '*int-av1-b.mkv' -and $d.frame -ge 0 -and (Ctl 'get' @('seeking')) -eq 'no' } 15000 'second AV1 file playing'
+        $ms = $sw.ElapsedMilliseconds
+        $d = Settled { param($d) "$($d.hwdecCurrent)" -eq 'no' }   # mpv reports it a moment after the start
+        Start-Sleep -Milliseconds (Scaled 300)   # time for a late probe error to reach the log
+        $errs2 = @(Read-LogFrom $log $n1 | Where-Object { $_ -match 'ERROR' -and $_ -match 'mpv\[' }).Count
+        Check 'second AV1 file: no hardware probe errors' ($errs2 -eq 0 -and "$($d.hwdecCurrent)" -eq 'no') "mpv errors first=$errs1 second=$errs2 hwdec=$($d.hwdecCurrent) started in $ms ms"
+        Check 'other codecs still allowed in hardware' ($codecs1 -match 'h264' -and $codecs1 -match 'hevc') $codecs1
+    } finally {
+        try { Ctl 'quit' | Out-Null } catch { }
+        if (-not $p.WaitForExit((Scaled 6000))) { try { $p.Kill() } catch { } }
     }
-    Check 'AV1 fell back to software: skipped for the session' ((@($d.hwdecMemo.skipped) -contains 'av1') -and $codecs1 -notmatch '(^|,)av1(,|$)' -and $codecs0 -match 'av1') "hwdec=$hwFirst before=$codecs0 after=$codecs1"
-    $errs1 = @(Read-LogFrom $log $n0 | Where-Object { $_ -match 'ERROR' -and $_ -match 'mpv\[' }).Count
-    $n1 = Log-LineCount $log
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    Ctl 'open' @($av1b) | Out-Null
-    $d = WaitFor { param($d) $d.path -like '*int-av1-b.mkv' -and $d.frame -ge 0 -and (Ctl 'get' @('seeking')) -eq 'no' } 15000 'second AV1 file playing'
-    $ms = $sw.ElapsedMilliseconds
-    Start-Sleep -Milliseconds 300
-    $errs2 = @(Read-LogFrom $log $n1 | Where-Object { $_ -match 'ERROR' -and $_ -match 'mpv\[' }).Count
-    Check 'second AV1 file: no hardware probe errors' ($errs2 -eq 0 -and "$($d.hwdecCurrent)" -eq 'no') "mpv errors first=$errs1 second=$errs2 hwdec=$($d.hwdecCurrent) started in $ms ms"
-    Check 'other codecs still allowed in hardware' ($codecs1 -match 'h264' -and $codecs1 -match 'hevc') $codecs1
 }
 
 Test 'int-quickstart-menu' {
@@ -182,8 +201,7 @@ ExtraMpvOptions=ao=null
 "@ | Set-Content -Encoding UTF8 $ini
     $p = Start-Process -FilePath $Exe -ArgumentList @('--automation', '--pipe', $Pipe, '--settings', "`"$ini`"", '--log', "`"$intDir\int-vidflow.log`"") -PassThru
     try {
-        $sw = [Diagnostics.Stopwatch]::StartNew(); $up = $false
-        while (-not $up -and $sw.ElapsedMilliseconds -lt 15000) { try { $up = (Ctl 'activate') -eq 'ok' } catch { Start-Sleep -Milliseconds 150 } }
+        $up = Wait-Pipe 15000
         Check 'integration instance up' $up
         $m = (Ctl 'menu' @('context')) | ConvertFrom-Json
         $json = $m | ConvertTo-Json -Depth 10 -Compress
@@ -202,7 +220,7 @@ ExtraMpvOptions=ao=null
         Check 'a click off the card is an ordinary video click' ($r -eq 'ok') "r=$r"
     } finally {
         try { Ctl 'quit' | Out-Null } catch { }
-        if (-not $p.WaitForExit(6000)) { try { $p.Kill() } catch { } }
+        if (-not $p.WaitForExit((Scaled 6000))) { try { $p.Kill() } catch { } }
     }
     # With a repository the item is listed (the check itself is click-only and is not run here).
     $ini2 = Join-Path $intDir 'int2.ini'
@@ -211,13 +229,12 @@ ExtraMpvOptions=ao=null
     $p = Start-Process -FilePath $Exe -ArgumentList @('--automation', '--pipe', $Pipe, '--settings', "`"$ini2`"", '--log', "`"$intDir\int2-vidflow.log`"") -PassThru
     $env:VIDFLOW_UPDATE_API = $null
     try {
-        $sw = [Diagnostics.Stopwatch]::StartNew(); $up = $false
-        while (-not $up -and $sw.ElapsedMilliseconds -lt 15000) { try { $up = (Ctl 'activate') -eq 'ok' } catch { Start-Sleep -Milliseconds 150 } }
-        $json = ((Ctl 'menu' @('context')) | ConvertFrom-Json) | ConvertTo-Json -Depth 10 -Compress
+        Wait-Pipe 15000 | Out-Null
+        $json =((Ctl 'menu' @('context')) | ConvertFrom-Json) | ConvertTo-Json -Depth 10 -Compress
         Check 'with UpdateRepo: "Check for Updates" listed and enabled' ($json -match '"text":"Check for Updates[^"]*","shortcut":"[^"]*","checked":false,"enabled":true') ''
         Check 'no update request made' ((Dump).update.checks -eq 0) ''
     } finally {
         try { Ctl 'quit' | Out-Null } catch { }
-        if (-not $p.WaitForExit(6000)) { try { $p.Kill() } catch { } }
+        if (-not $p.WaitForExit((Scaled 6000))) { try { $p.Kill() } catch { } }
     }
 }

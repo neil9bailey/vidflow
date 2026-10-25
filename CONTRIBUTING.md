@@ -22,6 +22,7 @@ on it.
 .\tools\make_testmedia.ps1   # test clips into testmedia\ (also make_vfrmedia.ps1 for frame-accuracy clips)
 .\tools\e2e.ps1              # end-to-end checks against the dev build
 .\tools\e2e.ps1 -Only cull-apply,cull-undo   # just the tests you're working on
+.\tools\e2e.ps1 -TimeScale 4                 # a slow machine: every wait 4x (default: from the load)
 .\tools\bench.ps1 -Suite gate   # release gate on the synthetic phone-footage samples
 ```
 

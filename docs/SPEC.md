@@ -69,14 +69,26 @@ content prefer the automation `screenshot` verb (mpv renders it). Test settings 
 `ExtraMpvOptions=ao=null` (no sound) and harness mpv instances use `ao=null`. Do not touch the
 clipboard, the real mouse/keyboard (no SendKeys/SetCursorPos/SendInput), or system settings.
 
-`tools\e2e.ps1 [-Exe <exe>] [-Pipe <name>] [-Only a,b]` runs the core tests, then every
-`tools\e2e.d\NN-name.ps1` suite in name order (dot-sourced; they add `Test` blocks using the
-script's helpers `Ctl, Dump, Act, Key, WaitFor, Near, Check, Test` and `$media, $work, $clip1,
-$clip4, $settingsPath, $Exe, $Pipe`): `10-frames`, `20-cull`, `25-cull-ui`, `30-extras`,
-`40-integration`. Its work folder is `obj\e2e-<pipe>` (wiped at start) and the single-instance
-tests use the pipes `<pipe>-SI` / `<pipe>-B`, so runs with different `-Pipe` values never share
-files or pipes. Its settings include `QuickStartShown=true` (suites that test the quick start card
-start their own instance). Files a test deletes are copies under `obj\`.
+`tools\e2e.ps1 [-Exe <exe>] [-Pipe <name>] [-Only a,b] [-TimeScale <x>]` runs the core tests,
+then every `tools\e2e.d\NN-name.ps1` suite in name order (dot-sourced; they add `Test` blocks using
+the script's helpers `Ctl, Dump, Act, Key, WaitFor, Settled, Poll, GetWhen, Scaled, Near, Check,
+Test` and `$media, $work, $clip1, $clip4, $settingsPath, $Exe, $Pipe`): `10-frames`, `20-cull`,
+`25-cull-ui`, `30-extras`, `40-integration`. Its work folder is `obj\e2e-<pipe>` (wiped at start)
+and the single-instance tests use the pipes `<pipe>-SI` / `<pipe>-B`, so runs with different
+`-Pipe` values never share files or pipes. Its settings include `QuickStartShown=true` (suites that
+test the quick start card start their own instance, as does the per-session hwdec memo test).
+Files a test deletes are copies under `obj\`.
+
+Waits follow the machine's load. Each is its written time × the time scale: by default twice the
+slowdown other processes (WSL, Docker, builds) cause at startup, measured from system CPU time
+minus the suite's and VidFlow's own. A wait whose condition still fails then carries on while the
+load since it began stays high (up to 4× longer). A wait ends as soon as its condition holds, so
+this costs a passing run nothing. State an action changes asynchronously (anything mpv reports
+back) is read with `Settled` / `Poll` / `GetWhen`, which wait for the expected value and otherwise
+return the last one for the check to report; a fixed pause is only for checks that something does
+*not* happen (`Scaled` stretches it). The few checks of an upper time limit stretch only the part
+that is VidFlow's own work, by the load measured over that interval ("exits within 6 s" = the 5 s
+engine shutdown limit + 1 s).
 `tools\bench.ps1` (speed suite, release gate; `docs\BENCHMARKS.md`, `docs\RELEASE-GATE.md`) runs on
 its own hidden desktop the same way.
 
