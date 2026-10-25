@@ -69,26 +69,47 @@ jobs:
           if-no-files-found: error
 
   engine-source:
-    # GPL corresponding source for the embedded libmpv-2.dll. Keep these pins in step with
-    # tools/fetch-engine.ps1 and THIRD-PARTY-NOTICES.md.
+    # GPL corresponding source for the embedded libmpv-2.dll: the complete source tarball and
+    # manifest that the Engine source workflow (engine-source.yml) attached to the engine
+    # pre-release for the engine this commit pins. When the engine changes, run that workflow
+    # with "publish" before releasing; until then this job fails rather than ship the wrong source.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Download source archives
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          path: src
+
+      - name: Download the engine's complete source
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          ENGINE_TAG=$(sed -n "s/^[$]Tag = '\([^']*\)'.*/\1/p" src/tools/fetch-engine.ps1)
+          ENGINE_ARCHIVE=$(sed -n "s/^[$]Archive = '\([^']*\)'.*/\1/p" src/tools/fetch-engine.ps1)
+          ENGINE=engine-$ENGINE_TAG
           mkdir engine-source
           cd engine-source
-          get() {  # repository, full commit, file name
-            curl -fsSL --retry 3 -o "$3" "https://github.com/$1/archive/$2.tar.gz"
-            echo "$3: https://github.com/$1/tree/$2" >> engine-source-README.txt
-          }
-          echo "Corresponding source for libmpv-2.dll (mpv-dev-x86_64-20261010-git-b2c255c13e.7z)." > engine-source-README.txt
-          echo "The build recipe pins every other library it compiles; see its packages/ folder." >> engine-source-README.txt
-          echo >> engine-source-README.txt
-          get shinchiro/mpv-winbuild-cmake b2856ee6deed6957380b32465f359e67f67fafd8 mpv-winbuild-cmake-20261010.tar.gz
-          get mpv-player/mpv b2c255c13e8e37952dbac6c34da56a690560378b mpv-b2c255c13e.tar.gz
-          get FFmpeg/FFmpeg ef305e32e8b159699cc4a76fbddcfb8ff210a8c7 ffmpeg-ef305e32e.tar.gz
+          if ! gh release download "$ENGINE" --repo "$GITHUB_REPOSITORY" -p "$ENGINE-source*"; then
+            echo "::error::No complete source on $ENGINE yet: run the Engine source workflow with publish ticked."
+            exit 1
+          fi
+          sha256sum -c -- "$ENGINE-source-SHA256SUMS.txt"
+          rm -- "$ENGINE-source-SHA256SUMS.txt"  # the release's own SHA256SUMS.txt covers these files
+          # Same text as the Engine source workflow writes when it attaches to a VidFlow release.
+          cat > engine-source-README.txt <<EOF
+          Corresponding source for libmpv-2.dll, the playback engine inside VidFlow.exe
+          ($ENGINE_ARCHIVE from shinchiro/mpv-winbuild-cmake, release $ENGINE_TAG).
+
+          $ENGINE-source.tar.xz is the complete source: the build recipe and every library linked
+          into the engine, each at the exact revision the upstream build used, plus the Rust crates it
+          links. $ENGINE-source-manifest.tsv lists each item with its version, source location,
+          revision and licence.
+
+          The same files are on https://github.com/$GITHUB_REPOSITORY/releases/tag/$ENGINE
+          How the revisions were established: docs/ENGINE-SOURCE.md in the VidFlow source.
+          EOF
           ls -l
 
       - name: Upload
