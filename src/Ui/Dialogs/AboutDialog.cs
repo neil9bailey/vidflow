@@ -64,9 +64,8 @@ namespace VidFlow.Ui.Dialogs
                 AddRow(grid, "Settings", settingsPath);
                 content.Controls.Add(grid, 1, 2);
 
-                string source = string.IsNullOrEmpty(AppInfo.ProjectUrl) ? "the project page" : AppInfo.ProjectUrl;
                 var credits = CreateWrappingLabel(AppInfo.Name + " is free software under the GNU General Public License v3, with no warranty. " +
-                    "Playback by mpv (libmpv) and FFmpeg, also GPL. Source code for this build, including its engine: " + source + ".",
+                    "Playback by mpv (libmpv) and FFmpeg, also GPL. Source code for this build, including its engine: " + AppInfo.ProjectUrl + ".",
                     400, true, 8.5f);
                 OnDpi(() => credits.Margin = Pad(1, 16, 0, 0));
                 content.Controls.Add(credits, 1, 3);

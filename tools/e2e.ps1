@@ -54,6 +54,7 @@ ConfirmDelete=true
 SingleInstance=true
 OsdMessages=true
 QuickStartShown=true
+UpdateRepo=
 ExtraMpvOptions=ao=null
 "@ | Set-Content -Encoding UTF8 $settingsPath
 

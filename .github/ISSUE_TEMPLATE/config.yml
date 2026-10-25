@@ -1,1 +1,8 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/neil9bailey/vidflow/discussions
+    about: Ask how to do something, or talk an idea through before filing it.
+  - name: Security problem
+    url: https://github.com/neil9bailey/vidflow/security/advisories/new
+    about: Report a vulnerability privately instead of in a public issue.

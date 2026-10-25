@@ -85,7 +85,8 @@ namespace VidFlow.Core
                    v.Build.ToString(CultureInfo.InvariantCulture);
         }
 
-        // "v1.2.3", "1.2", "V2.0.1-beta.2", "release-1.4" -> major.minor.build; false without digits.
+        // "v1.2.3", "1.2", "V2.0.1-beta.2", "release-1.4" -> major.minor.build; false without digits
+        // or with a major above 999.
         public static bool TryParseVersion(string tag, out Version version)
         {
             version = null;
@@ -105,7 +106,8 @@ namespace VidFlow.Core
                 if (j >= s.Length || s[j] != '.') break;
                 i = j + 1;
             }
-            if (parts.Count == 0) return false;
+            // A date-stamped tag (the engine mirror's "engine-20261010") is not a version.
+            if (parts.Count == 0 || parts[0] > 999) return false;
             while (parts.Count < 3) parts.Add(0);
             version = new Version(parts[0], parts[1], parts[2]);
             return true;

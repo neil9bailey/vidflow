@@ -68,7 +68,7 @@ namespace VidFlow.Core
 
         // ---- first run / updates ----
         public bool QuickStartShown { get; set; }            // the first-run card was dismissed
-        public string UpdateRepo { get; set; } = "";         // "owner/repo" on GitHub; "" hides Check for Updates
+        public string UpdateRepo { get; set; } = AppInfo.Repo; // "owner/repo" on GitHub; "" hides Check for Updates
 
         // ---- playlist ----
         public bool IncludeSubfolders { get; set; } = true;  // folders the user opens/drops are walked recursively

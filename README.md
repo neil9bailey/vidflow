@@ -53,7 +53,8 @@ when you click it. Details: [PRIVACY.md](PRIVACY.md).
 
 ## Install
 
-Download `VidFlow.exe` from the releases page (check it against `SHA256SUMS.txt` if you like) and
+Download `VidFlow.exe` from the [releases page](https://github.com/neil9bailey/vidflow/releases)
+(check it against `SHA256SUMS.txt` if you like) and
 run it. The exe is not code-signed yet, so Windows SmartScreen may ask you to confirm the first
 time. The first start unpacks the playback
 engine once (a few seconds) to `%LOCALAPPDATA%\VidFlow\engine`. Settings live in

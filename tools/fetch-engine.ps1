@@ -12,7 +12,9 @@ $Tag = '20261010'
 $Archive = 'mpv-dev-x86_64-20261010-git-b2c255c13e.7z'
 $ArchiveSha256 = '394490ed6354c2294b87c63dfa3663b23524b5551aace9cbe35c4085682b14fa'
 $DllSha256 = '34780746a0273a4fcae42dfe262a28984a426a238939474afd3a1561b450bbef'
-$Url = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$Tag/$Archive"
+# Upstream first; the project's own copy (release "engine-<tag>") in case upstream prunes old builds.
+$Urls = @("https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$Tag/$Archive",
+          "https://github.com/neil9bailey/vidflow/releases/download/engine-$Tag/$Archive")
 
 $dest = Join-Path $root 'third_party\libmpv'
 $dll = Join-Path $dest 'libmpv-2.dll'
@@ -24,13 +26,20 @@ if ((Test-Path $dll) -and (Get-FileHash $dll -Algorithm SHA256).Hash.ToLowerInva
 $dl = Join-Path $root 'third_party\download'
 New-Item -ItemType Directory -Force $dl, $dest | Out-Null
 $file = Join-Path $dl $Archive
-if (-not (Test-Path $file) -or (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ArchiveSha256) {
-    Write-Host "Downloading $Url"
+function Test-Archive { (Test-Path $file) -and (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant() -eq $ArchiveSha256 }
+if (-not (Test-Archive)) {
     $ProgressPreference = 'SilentlyContinue'
-    Invoke-WebRequest -Uri $Url -OutFile $file -UseBasicParsing
+    $problems = @()
+    foreach ($url in $Urls) {
+        Write-Host "Downloading $url"
+        try { Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing }
+        catch { $problems += "$url : $($_.Exception.Message)"; continue }
+        if (Test-Archive) { break }
+        $got = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+        $problems += "$url : SHA-256 mismatch (expected $ArchiveSha256, got $got)"
+    }
+    if (-not (Test-Archive)) { throw "Could not get a verified $Archive`n " + ($problems -join "`n ") }
 }
-$got = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($got -ne $ArchiveSha256) { throw "SHA-256 mismatch for $Archive`n expected $ArchiveSha256`n got      $got" }
 
 # Windows' own bsdtar reads 7z on current builds (called by path: Git's GNU tar, often first on
 # PATH, can't); 7-Zip is the fallback.

@@ -108,6 +108,14 @@ static class CoreTest
         Check(s2.ExtraMpvOptions == "a=1\nb=c:\\x", "settings multiline escape: " + s2.ExtraMpvOptions);
         Check(s2.RecentFiles.Count == 2 && s2.RecentFiles[0] == @"c:\V\A.mp4", "recent dedupe/order");
         Check(s2.KeyOverrides["Screenshot"] == "F5, Comma", "key override persisted");
+        Check(s.UpdateRepo == AppInfo.Repo && UpdateCheck.IsValidRepo(AppInfo.Repo), "update repo defaults to the project: " + s.UpdateRepo);
+        File.WriteAllText(ini, "UpdateRepo=\n");
+        Check(Settings.Load(ini).UpdateRepo == "", "an empty UpdateRepo stays empty (hides Check for Updates)");
+        Version v;
+        Check(UpdateCheck.TryParseVersion("v1.0.0-beta.4", out v) && v == new Version(1, 0, 0), "release tag parses");
+        Check(UpdateCheck.TryParseVersion("release-1.4", out v) && v == new Version(1, 4, 0), "prefixed tag parses");
+        Check(!UpdateCheck.TryParseVersion("engine-20261010", out v), "engine mirror tag is not a version");
+        Check(UpdateCheck.Evaluate("{\"tag_name\":\"engine-20261010\"}", new Version(1, 0, 0), AppInfo.Repo, 200).Status == UpdateStatus.Failed, "engine mirror never offered as an update");
         File.Delete(ini);
 
         Out(fails == 0 ? "ALL OK" : ("FAILURES: " + fails));

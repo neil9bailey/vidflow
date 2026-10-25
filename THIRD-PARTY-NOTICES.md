@@ -27,7 +27,8 @@ the `20261010` tag of mpv-winbuild-cmake.
 
 ## Corresponding source
 
-Every VidFlow Player release on the project page publishes, next to the binaries:
+Every VidFlow Player release on the [releases page](https://github.com/neil9bailey/vidflow/releases)
+publishes, next to the binaries:
 
 1. the VidFlow Player source code at that release's tag, and
 2. the corresponding source of the engine: the mpv-winbuild-cmake recipe at tag `20261010` plus
