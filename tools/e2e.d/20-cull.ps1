@@ -45,6 +45,16 @@ public static class CullWin {
     return found;
   }
   public static string Text(IntPtr h) { var sb = new StringBuilder(1024); GetWindowText(h, sb, 1024); return sb.ToString(); }
+  [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+  [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(long pt, uint flags);
+  [DllImport("shcore.dll")] static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint x, out uint y);
+  // The primary display's scaling, which VidFlow's windows on the hidden desktop follow (asked as a
+  // per-monitor-aware thread: an unaware caller is always told 96).
+  public static int PrimaryDpi() {
+    IntPtr old = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    try { uint x, y; return GetDpiForMonitor(MonitorFromPoint(0, 1), 0, out x, out y) == 0 ? (int)x : 96; }
+    finally { if (old != IntPtr.Zero) SetThreadDpiAwarenessContext(old); }
+  }
 }
 '@
 }
@@ -650,8 +660,10 @@ Test 'cull-fullscreen' {
 }
 
 Test 'cull-panel-open' {
-    # Entering cull mode opens the playlist panel once, when the window is wide enough.
-    $set = New-CullSet 'panel' @('CullMode=false', 'ShowPlaylist=false')
+    # Entering cull mode opens the playlist panel once, when the window is wide enough (720 px at
+    # 100% scaling), so the window is sized for the display's scaling.
+    $width = [math]::Max(1100, [math]::Ceiling(720 * [CullWin]::PrimaryDpi() / 96) + 80)
+    $set = New-CullSet 'panel' @('CullMode=false', 'ShowPlaylist=false', "WindowWidth=$width")
     Invoke-CullSession $set @($set.Files[0]) {
         WaitFor { param($d) $d.path -like '*clip01*' -and $d.playlistCount -eq 5 } 10000 'clip01' | Out-Null
         Check 'panel closed before cull mode' (-not (Dump).playlistVisible)
