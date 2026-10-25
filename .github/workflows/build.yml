@@ -1,0 +1,63 @@
+name: Build
+
+# Every push to main and every pull request: fetch the pinned engine, build the single-file exe,
+# run the core tests and keep the packed result as a workflow artifact for 30 days.
+# (The end-to-end suite needs generated test media and a desktop session; it runs locally, see
+# CONTRIBUTING.md.)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Cache engine archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: third_party/download
+          key: engine-${{ hashFiles('tools/fetch-engine.ps1') }}
+
+      - name: Fetch engine (pinned, SHA-256 checked)
+        run: ./tools/fetch-engine.ps1
+
+      - name: Build
+        env:
+          # A pull request's own head commit, not the temporary merge commit GitHub builds
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $v = (Get-Content VERSION -TotalCount 1).Trim() + '+ci.' + $env:COMMIT.Substring(0, 7)
+          "VIDFLOW_VERSION=$v" >> $env:GITHUB_ENV
+          ./build.ps1 -Version $v
+
+      - name: Core tests
+        run: ./tools/run-core-tests.ps1
+
+      - name: Package
+        run: ./tools/package-release.ps1 -Version $env:VIDFLOW_VERSION -OutDir obj/release-assets
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: VidFlow-${{ env.VIDFLOW_VERSION }}
+          path: obj/release-assets/
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,49 @@
+name: Bug report
+description: Something doesn't work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please don't attach private videos: describe the file instead
+        (Media Info, Ctrl+I, shows everything we need), or share a short clip you are happy to make public.
+  - type: input
+    id: version
+    attributes:
+      label: VidFlow Player version
+      description: Help > About shows it, e.g. 1.0.0-beta.4.
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: e.g. Windows 11 24H2. Mention the GPU if the problem is about the picture.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a folder of clips
+        2. Press C to turn on Cull mode
+        3. ...
+  - type: textarea
+    id: media
+    attributes:
+      label: About the video file
+      description: Container, codecs, resolution and frame rate (Media Info, Ctrl+I, can copy them).
+  - type: textarea
+    id: log
+    attributes:
+      label: Crash log
+      description: If VidFlow closed or showed an error, paste %LOCALAPPDATA%\VidFlow\crash.log (check it for anything private first).
+      render: text

@@ -1,0 +1,15 @@
+# Text files are stored with LF in the repository and checked out with the platform default.
+* text=auto
+
+# Binary
+*.ico binary
+*.png binary
+*.jpg binary
+*.exe binary
+*.dll binary
+*.gz binary
+*.7z binary
+*.zip binary
+*.mp4 binary
+*.mkv binary
+*.webm binary

@@ -1,0 +1,527 @@
+<#
+.SYNOPSIS
+  End-to-end tests: drives a real VidFlow.exe over the automation pipe and checks its state.
+  Everything runs on a hidden desktop (tools\RunHidden) with audio sent to mpv's null output,
+  so nothing appears on screen or plays through the speakers. The user's clipboard is only
+  touched with -Clipboard.
+.EXAMPLE
+  .\tools\e2e.ps1                       # dev build (dist\dev\VidFlow.exe)
+  .\tools\e2e.ps1 -Exe dist\VidFlow.exe  # single-file release build
+  .\tools\e2e.ps1 -Only zoom,fullscreen
+#>
+param(
+    [string]$Exe = (Join-Path $PSScriptRoot '..\dist\dev\VidFlow.exe'),
+    [string]$Pipe = 'VidFlowE2E',
+    [string[]]$Only,
+    [switch]$KeepOpen,
+    [switch]$Clipboard
+)
+$ErrorActionPreference = 'Stop'
+$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+# Re-run this script on the hidden desktop: every window it opens stays off the user's screen.
+if ($env:VIDFLOW_HIDDEN -ne '1') {
+    & (Join-Path $root 'tools\ensure-runhidden.ps1')
+    $env:VIDFLOW_HIDDEN = '1'
+    $fwd = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-Exe', (Resolve-Path $Exe).Path, '-Pipe', $Pipe)
+    if ($Only) { $fwd += '-Only'; $fwd += ($Only -join ',') }
+    if ($KeepOpen) { $fwd += '-KeepOpen' }
+    if ($Clipboard) { $fwd += '-Clipboard' }
+    $shell = (Get-Process -Id $PID).Path
+    & (Join-Path $root 'obj\tools\RunHidden.exe') --wait --timeout 1800000 -- $shell @fwd
+    $code = $LASTEXITCODE
+    $env:VIDFLOW_HIDDEN = $null
+    exit $code
+}
+if ($Only -and $Only.Count -eq 1 -and $Only[0] -match ',') { $Only = $Only[0].Split(',') }
+$Exe = (Resolve-Path $Exe).Path
+$media = Join-Path $root 'testmedia'
+# One work folder per pipe: runs with different -Pipe values (in parallel) never share files.
+$work = Join-Path $root ('obj\e2e-' + ($Pipe -replace '[^A-Za-z0-9._-]', '_'))
+if (Test-Path $work) { Get-ChildItem $work -Recurse -Force | Sort-Object FullName -Descending | ForEach-Object { if ($_.PSIsContainer) { [IO.Directory]::Delete($_.FullName) } else { [IO.File]::Delete($_.FullName) } } }
+New-Item -ItemType Directory -Force $work, "$work\shots" | Out-Null
+$settingsPath = Join-Path $work 'settings.ini'
+@"
+AutoFitWindow=false
+WindowX=80
+WindowY=60
+WindowWidth=1000
+WindowHeight=640
+Repeat=Off
+ThumbnailPreview=true
+ScreenshotFolder=$work\shots
+ConfirmDelete=true
+SingleInstance=true
+OsdMessages=true
+QuickStartShown=true
+ExtraMpvOptions=ao=null
+"@ | Set-Content -Encoding UTF8 $settingsPath
+
+$results = New-Object System.Collections.Generic.List[object]
+$enc = New-Object System.Text.UTF8Encoding($false)
+
+function Ctl([string]$verb, [string[]]$a = @()) {
+    $c = New-Object System.IO.Pipes.NamedPipeClientStream('.', $Pipe, [System.IO.Pipes.PipeDirection]::InOut)
+    try {
+        $c.Connect(5000)
+        $w = New-Object System.IO.StreamWriter($c, $enc, 4096, $true)
+        $w.Write("$verb`n"); foreach ($x in $a) { $w.Write("$x`n") }; $w.Write("<<END>>`n"); $w.Flush()
+        $r = New-Object System.IO.StreamReader($c, $enc, $false, 4096, $true)
+        $lines = New-Object System.Collections.Generic.List[string]
+        while ($null -ne ($line = $r.ReadLine()) -and $line -ne '<<END>>') { $lines.Add($line) }
+        return ($lines -join "`n")
+    } finally { $c.Dispose() }
+}
+function Dump { (Ctl 'dump') | ConvertFrom-Json }
+function Act([string[]]$ids) { $r = Ctl 'action' $ids; if ($r -ne 'ok') { throw "action $ids -> $r" }; Start-Sleep -Milliseconds 120 }
+function Key([string[]]$keys) { $r = Ctl 'key' $keys; Start-Sleep -Milliseconds 120; return $r }
+function WaitFor([scriptblock]$cond, [int]$ms = 6000, [string]$what = 'condition') {
+    $sw = [Diagnostics.Stopwatch]::StartNew(); $d = $null
+    while ($sw.ElapsedMilliseconds -lt $ms) {
+        try { $d = Dump; if (& $cond $d) { return $d } } catch { }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "timeout waiting for $what; last dump: $(($d | ConvertTo-Json -Compress -Depth 4))"
+}
+function Near($a, $b, $tol) { return ($null -ne $a) -and ([math]::Abs([double]$a - [double]$b) -le $tol) }
+function Check([string]$name, [bool]$ok, [string]$detail = '') {
+    $results.Add([pscustomobject]@{ Test = $script:current; Check = $name; Pass = $ok; Detail = $detail })
+    $col = if ($ok) { 'Green' } else { 'Red' }
+    Write-Host ("  [{0}] {1} {2}" -f ($(if ($ok) { 'PASS' } else { 'FAIL' })), $name, $detail) -ForegroundColor $col
+}
+function Test([string]$name, [scriptblock]$body) {
+    if ($Only -and -not ($Only -contains $name)) { return }
+    $script:current = $name
+    Write-Host "== $name" -ForegroundColor Cyan
+    try { & $body } catch { Check 'no exception' $false $_.Exception.Message }
+}
+function Start-VidFlow([string[]]$extra) {
+    $argList = @('--automation', '--pipe', $Pipe, '--settings', "`"$settingsPath`"", '--log', "`"$work\vidflow.log`"") + $extra
+    $p = Start-Process -FilePath $Exe -ArgumentList $argList -PassThru
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt 15000) {
+        try { if ((Ctl 'activate') -eq 'ok') { return $p } } catch { Start-Sleep -Milliseconds 150 }
+    }
+    throw "VidFlow did not open its control pipe"
+}
+
+$clip1 = Join-Path $media 'clip01_h264_720p30.mp4'
+$clip4 = Join-Path $media 'clip04_hevc_multitrack.mkv'
+$proc = Start-VidFlow @("`"$clip1`"")
+
+Test 'open' {
+    $d = WaitFor { param($d) $d.path -like '*clip01*' -and (Near $d.duration 8 0.1) } 8000 'clip01 loaded'
+    Check 'path' ($d.path -like '*clip01_h264_720p30.mp4') $d.path
+    Check 'folder auto-loaded (5 media files)' ($d.playlistCount -eq 5) "count=$($d.playlistCount)"
+    Check 'index 0' ($d.playlistIndex -eq 0) "$($d.playlistIndex)"
+    Check 'title has name + [1/5]' ($d.title -like 'clip01_h264_720p30.mp4*1/5*') $d.title
+    Check 'fps 30' (Near $d.fps 30 0.01) "$($d.fps)"
+    Check 'surface handle stable' ($d.surfaceHandle -eq $d.surfaceHandleAtStart) "$($d.surfaceHandle)"
+}
+
+Test 'pause' {
+    $d0 = Dump
+    if (-not $d0.paused) { Act 'PlayPause' }
+    $d = WaitFor { param($d) $d.paused } 3000 'paused'
+    Check 'paused' $d.paused
+    Check 'control bar shows paused' ($d.controlBar.paused -eq $true)
+}
+
+Test 'seek' {
+    Act 'SeekPercent:50'
+    $d = WaitFor { param($d) Near $d.position 4.0 0.05 } 4000 'seek 50%'
+    Check 'position 4.0' (Near $d.position 4.0 0.05) "$($d.position)"
+    Check 'frame 120' ($d.frame -eq 120) "$($d.frame)"
+    Act 'SeekForwardShort'
+    $d = WaitFor { param($d) Near $d.position 5.0 0.05 } 4000 'seek +1'
+    Check 'shift+right = +1s' (Near $d.position 5.0 0.05) "$($d.position)"
+    Act 'SeekBackward'
+    $d = WaitFor { param($d) Near $d.position 0.0 0.05 } 4000 'seek -5'
+    Check 'left = -5s' (Near $d.position 0.0 0.05) "$($d.position)"
+    Act 'GoToEnd'
+    $d = WaitFor { param($d) $d.frame -eq 239 } 4000 'last frame'
+    Check 'go to end = last frame (239), paused' ($d.frame -eq 239 -and $d.paused) "frame=$($d.frame) pos=$($d.position)"
+    Act 'Stop'
+    $d = WaitFor { param($d) Near $d.position 0 0.05 } 4000 'stop'
+    Check 'stop = paused at 0' ($d.paused -and (Near $d.position 0 0.05)) "$($d.position)"
+}
+
+Test 'framestep' {
+    Act 'SeekPercent:50'
+    WaitFor { param($d) $d.frame -eq 120 } 4000 'frame 120' | Out-Null
+    $r = Key @('.', '.', '.')
+    $d = WaitFor { param($d) $d.frame -eq 123 } 4000 'frame 123'
+    Check '"." x3 -> frame 123' ($d.frame -eq 123) "frame=$($d.frame) keys=[$r]"
+    $r = Key @('Ctrl+Left', 'Ctrl+Left')
+    $d = WaitFor { param($d) $d.frame -eq 121 } 4000 'frame 121'
+    Check 'Ctrl+Left x2 -> frame 121' ($d.frame -eq 121) "frame=$($d.frame) keys=[$r]"
+    Check 'still paused' $d.paused
+    $r = Key @(',', ',', ',', ',', ',')
+    $d = WaitFor { param($d) $d.frame -eq 116 } 5000 'frame 116'
+    Check '5 rapid back steps -> frame 116' ($d.frame -eq 116) "frame=$($d.frame)"
+    Key @('.', ',', '.') | Out-Null
+    $d = WaitFor { param($d) $d.frame -eq 117 } 5000 'frame 117'
+    Check 'mixed . , . -> net +1 (117)' ($d.frame -eq 117) "frame=$($d.frame)"
+}
+
+Test 'speed' {
+    Act 'SpeedReset'
+    Act 'SpeedUp'; $d = Dump; Check 'SpeedUp 1 -> 1.25' (Near $d.speed 1.25 0.001) "$($d.speed)"
+    Act 'SpeedDown'; Act 'SpeedDown'; $d = Dump; Check 'SpeedDown x2 -> 0.75' (Near $d.speed 0.75 0.001) "$($d.speed)"
+    Act 'SetSpeed:0.5'; $d = Dump; Check 'SetSpeed 0.5' (Near $d.speed 0.5 0.001)
+    Act 'SpeedDouble'; $d = Dump; Check 'double -> 1' (Near $d.speed 1 0.001)
+    Act 'SpeedFineUp'; $d = Dump; Check 'fine +0.05' (Near $d.speed 1.05 0.001) "$($d.speed)"
+    Key @('Backspace') | Out-Null; $d = Dump; Check 'Backspace resets' (Near $d.speed 1 0.001)
+    Check 'control bar speed' (Near $d.controlBar.speed 1 0.001)
+    $m = (Ctl 'menu' @('speed')) | ConvertFrom-Json
+    $one = $m | Where-Object { $_.text -match '^1(\.0+)?×$' } | Select-Object -First 1
+    Check 'speed menu has checked 1×' ($null -ne $one -and $one.checked) "$(($one | ConvertTo-Json -Compress))"
+}
+
+Test 'repeat' {
+    Act 'SetRepeat:One'; Check 'loop-file inf' ((Ctl 'get' @('loop-file')) -eq 'inf') (Ctl 'get' @('loop-file'))
+    Act 'CycleRepeat'; $d = Dump; Check 'cycle One -> All' ($d.repeat -eq 'All') "$($d.repeat)"
+    Check 'loop-file off for All' ((Ctl 'get' @('loop-file')) -eq 'no')
+    Act 'CycleRepeat'; $d = Dump; Check 'cycle All -> Off' ($d.repeat -eq 'Off') "$($d.repeat)"
+}
+
+Test 'abloop' {
+    Ctl 'mpv' @('seek', '1', 'absolute+exact') | Out-Null
+    WaitFor { param($d) Near $d.position 1 0.05 } 3000 'pos 1' | Out-Null
+    Act 'AbLoop'; $d = Dump; Check 'A set at 1.0' (Near $d.abA 1.0 0.05) "$($d.abA)"
+    Check 'bar shows ASet' ($d.controlBar.abLoop -eq 'ASet') "$($d.controlBar.abLoop)"
+    Ctl 'mpv' @('seek', '2', 'absolute+exact') | Out-Null
+    WaitFor { param($d) Near $d.position 2 0.05 } 3000 'pos 2' | Out-Null
+    Act 'AbLoop'; $d = Dump; Check 'B set at 2.0' (Near $d.abB 2.0 0.05) "$($d.abB)"
+    Check 'bar shows Active' ($d.controlBar.abLoop -eq 'Active')
+    Act 'AbLoop'; $d = Dump; Check 'cleared' ($null -eq $d.abA -and $null -eq $d.abB) "a=$($d.abA) b=$($d.abB)"
+}
+
+Test 'zoom' {
+    Act 'ZoomReset'
+    Act 'ZoomIn'; $d = Dump; Check 'zoom in 25%' (Near $d.zoom 0.3219 0.001) "$($d.zoom)"
+    Act 'ZoomOut'; $d = Dump; Check 'zoom out back to 0' (Near $d.zoom 0 0.001) "$($d.zoom)"
+    $s = (Dump).videoHostSize
+    Ctl 'mouse' @('wheel', [string][int]($s[0] * 0.8), [string][int]($s[1] * 0.25), '120', 'ctrl') | Out-Null
+    Start-Sleep -Milliseconds 150
+    $d = Dump
+    Check 'ctrl+wheel zooms' ($d.zoom -gt 0.1) "$($d.zoom)"
+    Check 'zoom at cursor pans toward cursor' ($d.panX -lt 0 -and $d.panY -gt 0) "panX=$($d.panX) panY=$($d.panY)"
+    $before = $d.panX
+    Ctl 'mouse' @('drag', '300', '300', '200', '300') | Out-Null
+    Start-Sleep -Milliseconds 150
+    $d = Dump
+    Check 'drag pans when zoomed' (-not (Near $d.panX $before 0.0001)) "before=$before after=$($d.panX)"
+    Act 'ZoomReset'; $d = Dump
+    Check 'reset' ((Near $d.zoom 0 0.0001) -and (Near $d.panX 0 0.0001) -and (Near $d.panY 0 0.0001))
+    Check 'zoomText Fit' ($d.zoomText -eq 'Fit') $d.zoomText
+    Act 'SetZoom:100'; $d = Dump
+    Check 'SetZoom:100 -> "100%"' ($d.zoomText -eq '100%') "$($d.zoomText) zoom=$($d.zoom)"
+    Act 'ZoomReset'
+}
+
+Test 'fullscreen' {
+    $d0 = Dump
+    Act 'ToggleFullscreen'
+    $d = WaitFor { param($d) $d.fullscreen } 3000 'fullscreen'
+    Add-Type -AssemblyName System.Windows.Forms
+    Check 'fullscreen' $d.fullscreen
+    Check 'no controls visible' (-not $d.controlsVisible -and -not $d.playlistVisible) "controls=$($d.controlsVisible) playlist=$($d.playlistVisible)"
+    Check 'video fills window' ($d.videoHostSize[0] -eq $d.clientSize[0] -and $d.videoHostSize[1] -eq $d.clientSize[1]) "host=$($d.videoHostSize) client=$($d.clientSize)"
+    Check 'surface handle unchanged' ($d.surfaceHandle -eq $d.surfaceHandleAtStart)
+    $shot = Join-Path $work 'fullscreen.png'
+    Ctl 'screenshot' @($shot) | Out-Null
+    Act 'ExitFullscreen'
+    $d = WaitFor { param($d) -not $d.fullscreen } 3000 'windowed'
+    Check 'bounds restored' (($d.windowBounds -join ',') -eq ($d0.windowBounds -join ',')) "$($d0.windowBounds) -> $($d.windowBounds)"
+    Check 'controls back' $d.controlsVisible
+    Check 'surface handle unchanged after exit' ($d.surfaceHandle -eq $d.surfaceHandleAtStart)
+}
+
+Test 'mouse' {
+    $d = Dump; $s = $d.videoHostSize; $p0 = $d.paused
+    $cx = [string][int]($s[0] / 2); $cy = [string][int]($s[1] / 2)
+    Ctl 'mouse' @('click', $cx, $cy) | Out-Null
+    $d = WaitFor { param($d) $d.paused -ne $p0 } 3000 'click toggles pause'
+    Check 'click toggles pause' ($d.paused -ne $p0)
+    $p1 = $d.paused
+    Ctl 'mouse' @('dblclick', $cx, $cy) | Out-Null
+    $d = WaitFor { param($d) $d.fullscreen } 3000 'dblclick fullscreen'
+    Check 'double-click -> fullscreen' $d.fullscreen
+    Check 'double-click keeps pause state' ($d.paused -eq $p1) "before=$p1 after=$($d.paused)"
+    Act 'ExitFullscreen'
+    if (-not (Dump).paused) { Act 'PlayPause' }
+    $v0 = (Dump).volume
+    Ctl 'mouse' @('wheel', '100', '100', '-120') | Out-Null; Start-Sleep -Milliseconds 100
+    Check 'wheel down lowers volume' ((Dump).volume -lt $v0) "$v0 -> $((Dump).volume)"
+    Act 'SeekPercent:50'; WaitFor { param($d) $d.frame -eq 120 } 3000 'f120' | Out-Null
+    Ctl 'mouse' @('wheel', '100', '100', '120', 'shift') | Out-Null
+    $d = WaitFor { param($d) $d.frame -eq 121 } 3000 'shift wheel step'
+    Check 'shift+wheel up = next frame' ($d.frame -eq 121) "$($d.frame)"
+}
+
+Test 'volume' {
+    Act 'VolumeUp'; $v = (Dump).volume
+    Act 'VolumeDown'; $d = Dump; Check 'volume -5' (Near $d.volume ($v - 5) 0.01) "$v -> $($d.volume)"
+    Act 'ToggleMute'; Check 'muted' ((Dump).muted -eq $true)
+    Act 'ToggleMute'; Check 'unmuted' ((Dump).muted -eq $false)
+}
+
+Test 'playlist' {
+    Act 'NextFile'; $d = WaitFor { param($d) $d.path -like '*clip02*' } 5000 'clip02'
+    Check 'next -> clip02, index 1' ($d.playlistIndex -eq 1) "$($d.path)"
+    Act 'LastFile'; $d = WaitFor { param($d) $d.path -like '*clip05*' } 5000 'clip05'
+    Check 'last -> clip05' ($d.playlistIndex -eq 4)
+    $r = Ctl 'action' @('NextFile'); Start-Sleep -Milliseconds 400; $d = Dump
+    Check 'next at end without wrap (repeat off) stays (action disabled)' ($d.playlistIndex -eq 4 -and $r -match 'disabled') "$($d.playlistIndex) $r"
+    Act 'FirstFile'; $d = WaitFor { param($d) $d.path -like '*clip01*' } 5000 'clip01'
+    Check 'first -> clip01' ($d.playlistIndex -eq 0)
+    Act 'TogglePlaylist'; $d = Dump; Check 'playlist panel shown' $d.playlistVisible
+    Act 'TogglePlaylist'; $d = Dump; Check 'playlist panel hidden' (-not $d.playlistVisible)
+}
+
+Test 'tracks' {
+    Act 'PlayIndex:3'
+    $d = WaitFor { param($d) $d.path -like '*clip04*' -and $d.duration -gt 11 } 6000 'clip04'
+    Check 'clip04 loaded' $true $d.path
+    Act 'AudioTrack:2'; $d = Dump; Check 'audio track 2' ("$($d.aid)" -eq '2') "aid=$($d.aid)"
+    Act 'SubTrack:1'; $d = Dump; Check 'subtitle track 1' ("$($d.sid)" -eq '1') "sid=$($d.sid)"
+    $m = (Ctl 'menu' @('context')) | ConvertFrom-Json
+    $json = $m | ConvertTo-Json -Depth 10 -Compress
+    Check 'context menu lists chapters' ($json -match 'Middle') ''
+    Check 'context menu lists jpn audio' ($json -match 'Japanese') ''
+    Check 'menu shows Space for Play / Pause' ($json -match '"Play / Pause","shortcut":"Space') ''
+    Ctl 'mpv' @('seek', '1', 'absolute+exact') | Out-Null; Start-Sleep -Milliseconds 300
+    Act 'NextChapter'; $d = WaitFor { param($d) $d.position -ge 3.99 } 3000 'chapter 2'
+    Check 'next chapter -> 4 s' (Near $d.position 4 0.1) "$($d.position)"
+}
+
+Test 'video' {
+    Act 'SetRotate:90'; Check 'rotate 90' ("$((Dump).rotate)" -eq '90')
+    Act 'SetRotate:0'
+    Act 'SetAspect:4:3'; Check 'aspect 4:3' ("$((Dump).aspect)" -match '4:3|1\.333') "$((Dump).aspect)"
+    Act 'SetAspect:no'
+    Act 'FlipH'; $vf = Ctl 'get' @('vf'); Check 'hflip filter on' ($vf -match 'hflip') $vf
+    Check 'copy-back hwdec while flipped' ((Dump).hwdec -match 'copy|^no$') "$((Dump).hwdec)"
+    Act 'FlipH'; $vf = Ctl 'get' @('vf'); Check 'hflip filter off' ($vf -notmatch 'hflip') $vf
+    Act 'ToggleFill'; Check 'panscan 1' (Near (Dump).panscan 1 0.01)
+    Act 'ToggleFill'; Check 'panscan 0' (Near (Dump).panscan 0 0.01)
+}
+
+Test 'screenshot' {
+    Act 'Screenshot'
+    Start-Sleep -Milliseconds 800
+    $f = Get-ChildItem "$work\shots" -Filter *.png -ErrorAction SilentlyContinue | Select-Object -First 1
+    Check 'screenshot file written' ($null -ne $f) "$($f.Name)"
+    if ($Clipboard) {
+        Act 'CopyFrame'
+        $img = & "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; `$i=[Windows.Forms.Clipboard]::GetImage(); if(`$i){'{0}x{1}' -f `$i.Width,`$i.Height}else{'none'}"
+        Check 'frame on clipboard' ($img -match '^\d+x\d+$') "$img"
+    }
+}
+
+Test 'windowsize' {
+    Act 'PlayIndex:0'; WaitFor { param($d) $d.path -like '*clip01*' } 5000 'clip01' | Out-Null
+    Act 'WindowSize:50'
+    $d = WaitFor { param($d) [math]::Abs($d.videoHostSize[0] - 640) -le 2 -and [math]::Abs($d.videoHostSize[1] - 360) -le 2 } 5000 'window 50%'
+    Check 'WindowSize:50 -> 640x360 video area' ([math]::Abs($d.videoHostSize[0] - 640) -le 2 -and [math]::Abs($d.videoHostSize[1] - 360) -le 2) "$($d.videoHostSize)"
+}
+
+Test 'keys' {
+    $r = Key @('Ctrl+Alt+F12'); Check 'unbound key reported' ($r -match 'unbound') $r
+    $m0 = (Dump).muted
+    $r = Key @('M'); Check 'M maps to ToggleMute' ($r -match 'ToggleMute' -and (Dump).muted -ne $m0) $r
+    Key @('M') | Out-Null
+    $r = Key @('Shift+.'); Check '">" (Shift+.) maps to NextFile' ($r -match 'NextFile') $r
+    Act 'PrevFile'
+}
+
+Test 'delete' {
+    $dir = Join-Path $work 'deltest'; New-Item -ItemType Directory -Force $dir | Out-Null
+    Copy-Item (Join-Path $media 'clip03_vp9.webm') (Join-Path $dir 'vidflow-e2e-delete-test-a.webm')
+    Copy-Item (Join-Path $media 'clip05_av1_noaudio.mkv') (Join-Path $dir 'vidflow-e2e-delete-test-b.mkv')
+    Ctl 'open' @((Join-Path $dir 'vidflow-e2e-delete-test-a.webm')) | Out-Null
+    WaitFor { param($d) $d.path -like '*delete-test-a*' } 5000 'delete test a' | Out-Null
+    Act 'DeleteFileNoConfirm'
+    $d = WaitFor { param($d) $d.path -like '*delete-test-b*' } 5000 'advanced to b'
+    Check 'advanced to next file' ($d.path -like '*delete-test-b*') $d.path
+    Check 'playlist shrank to 1' ($d.playlistCount -eq 1) "$($d.playlistCount)"
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ((Test-Path (Join-Path $dir 'vidflow-e2e-delete-test-a.webm')) -and $sw.ElapsedMilliseconds -lt 4000) { Start-Sleep -Milliseconds 100 }
+    Check 'file moved to Recycle Bin' (-not (Test-Path (Join-Path $dir 'vidflow-e2e-delete-test-a.webm')))
+}
+
+Test 'osdstatus' {
+    Ctl 'open' @($clip1) | Out-Null
+    WaitFor { param($d) $d.path -like '*clip01*' -and $d.frameCount -gt 0 } 5000 'clip01' | Out-Null
+    Act 'ToggleOsdStatus'; $d = Dump
+    Check 'O -> FullscreenOnly' ("$($d.osdStatus)" -eq 'FullscreenOnly') "$($d.osdStatus)"
+    Check 'windowed: osd-level 1' ((Ctl 'get' @('osd-level')) -eq '1') (Ctl 'get' @('osd-level'))
+    Act 'ToggleFullscreen'; Start-Sleep -Milliseconds 300
+    Check 'fullscreen: osd-level 3' ((Ctl 'get' @('osd-level')) -eq '3') (Ctl 'get' @('osd-level'))
+    Act 'ExitFullscreen'; Start-Sleep -Milliseconds 300
+    Check 'back to 1 after fullscreen' ((Ctl 'get' @('osd-level')) -eq '1')
+    Act 'ToggleOsdStatus'; Check 'O -> Always: osd-level 3' ((Ctl 'get' @('osd-level')) -eq '3' -and "$((Dump).osdStatus)" -eq 'Always')
+    Act 'ToggleOsdStatus'; Check 'O -> Off: osd-level 1' ((Ctl 'get' @('osd-level')) -eq '1' -and "$((Dump).osdStatus)" -eq 'Off')
+}
+
+Test 'abset' {
+    if (-not (Dump).paused) { Act 'PlayPause' }
+    Ctl 'mpv' @('seek', '1', 'absolute+exact') | Out-Null; WaitFor { param($d) Near $d.position 1 0.02 } 3000 'pos 1' | Out-Null
+    Act 'AbSetA'; Check 'AbSetA at 1.0' (Near (Dump).abA 1.0 0.02) "$((Dump).abA)"
+    Ctl 'mpv' @('seek', '2', 'absolute+exact') | Out-Null; WaitFor { param($d) Near $d.position 2 0.02 } 3000 'pos 2' | Out-Null
+    Act 'AbSetB'; Check 'AbSetB at 2.0' (Near (Dump).abB 2.0 0.02) "$((Dump).abB)"
+    Act 'AbNudge:B-1'; $d = WaitFor { param($d) Near $d.abB (2.0 - 1 / 30) 0.005 } 2000 'nudge B'
+    Check 'nudge B -1 frame' (Near $d.abB (2.0 - 1 / 30) 0.005) "$($d.abB)"
+    Act 'AbNudge:A+1'; $d = WaitFor { param($d) Near $d.abA (1.0 + 1 / 30) 0.005 } 2000 'nudge A'
+    Check 'nudge A +1 frame' (Near $d.abA (1.0 + 1 / 30) 0.005) "$($d.abA)"
+    Act 'AbLoopClear'; $d = Dump; Check 'cleared' ($null -eq $d.abA -and $null -eq $d.abB)
+}
+
+Test 'markers' {
+    Ctl 'action' @('ClearMarkers') | Out-Null   # disabled (harmless) when there are none
+    foreach ($t in 1, 3) { Ctl 'mpv' @('seek', "$t", 'absolute+exact') | Out-Null; WaitFor { param($d) Near $d.position $t 0.02 } 3000 "pos $t" | Out-Null; Act 'AddMarker' }
+    $d = Dump; Check 'two markers' (@($d.markers).Count -eq 2) "$($d.markers)"
+    Ctl 'mpv' @('seek', '0', 'absolute+exact') | Out-Null; WaitFor { param($d) Near $d.position 0 0.02 } 3000 'pos 0' | Out-Null
+    Act 'NextMarker'; $d = WaitFor { param($d) Near $d.position 1 0.03 } 3000 'marker 1'; Check 'next marker -> 1.0' $true
+    Act 'NextMarker'; $d = WaitFor { param($d) Near $d.position 3 0.03 } 3000 'marker 3'; Check 'next marker -> 3.0' $true
+    Act 'PrevMarker'; $d = WaitFor { param($d) Near $d.position 1 0.03 } 3000 'back to 1'; Check 'previous marker -> 1.0' $true
+    if ($Clipboard) {
+        Act 'CopyMarkers'
+        $clip = & "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -STA -Command "Add-Type -AssemblyName System.Windows.Forms; [Windows.Forms.Clipboard]::GetText()"
+        Check 'markers copied' ("$clip" -match '0:01\.000' -and "$clip" -match '0:03\.000') "$clip"
+    }
+    Act 'ClearMarkers'; Check 'markers cleared' (@((Dump).markers).Count -eq 0)
+}
+
+Test 'audiofx' {
+    Act 'ToggleAudioNormalize'; $af = Ctl 'get' @('af'); Check 'normalize on (dynaudnorm)' ($af -match 'dynaudnorm') $af
+    Act 'ToggleAudioNormalize'; $af = Ctl 'get' @('af'); Check 'normalize off' ($af -notmatch 'dynaudnorm') $af
+    Act 'SetAudioChannels:mono'; Check 'mono downmix' ((Ctl 'get' @('audio-channels')) -match 'mono') (Ctl 'get' @('audio-channels'))
+    Act 'SetAudioChannels:auto'; Check 'channels back to auto' ((Ctl 'get' @('audio-channels')) -match 'auto') (Ctl 'get' @('audio-channels'))
+}
+
+Test 'reverse' {
+    Ctl 'mpv' @('seek', '6', 'absolute+exact') | Out-Null; WaitFor { param($d) Near $d.position 6 0.05 } 3000 'pos 6' | Out-Null
+    Act 'ToggleReverse'
+    # Backward playback spins up asynchronously (software decode, demuxer back-buffer): allow a few seconds.
+    $sw = [Diagnostics.Stopwatch]::StartNew(); $dir = ''
+    while ($sw.ElapsedMilliseconds -lt 4000 -and $dir -ne 'backward') { Start-Sleep -Milliseconds 100; $dir = Ctl 'get' @('play-direction') }
+    Check 'play-direction backward' ($dir -eq 'backward') $dir
+    $d = WaitFor { param($d) $d.position -lt 5.5 -and -not $d.paused } 6000 'moving backwards'
+    Check 'position moved backwards' ($d.position -lt 5.5) "pos=$($d.position) paused=$($d.paused)"
+    Act 'ToggleReverse'
+    $sw.Restart(); while ($sw.ElapsedMilliseconds -lt 4000 -and $dir -ne 'forward') { Start-Sleep -Milliseconds 100; $dir = Ctl 'get' @('play-direction') }
+    Check 'forward again' ($dir -eq 'forward') $dir
+    if (-not (Dump).paused) { Act 'PlayPause' }
+}
+
+Test 'borderless' {
+    $d0 = Dump
+    Act 'ToggleBorderless'; $d = Dump
+    Check 'borderless on' ($d.borderless -eq $true)
+    Check 'title bar removed, video area kept' ($d.captionVisible -eq $false -and ($d.clientSize -join ',') -eq ($d0.clientSize -join ',')) "caption=$($d.captionVisible) $($d0.clientSize) -> $($d.clientSize)"
+    Check 'surface handle unchanged' ($d.surfaceHandle -eq $d.surfaceHandleAtStart)
+    Act 'ToggleFullscreen'; Start-Sleep -Milliseconds 300; Act 'ExitFullscreen'; Start-Sleep -Milliseconds 300
+    $d = Dump; Check 'still borderless after fullscreen' ($d.borderless -eq $true -and -not $d.fullscreen)
+    Act 'ToggleBorderless'; $d = Dump
+    Check 'borderless off, size restored' ($d.borderless -eq $false -and ($d.clientSize -join ',') -eq ($d0.clientSize -join ',')) "$($d.clientSize)"
+    Act 'ToggleKeepAspect'; Check 'keep aspect on' ((Dump).keepAspect -eq $true)
+    Act 'ToggleKeepAspect'
+}
+
+Test 'playlistfiles' {
+    $pl = Join-Path $work 'list.m3u8'
+    # A path relative to the playlist's folder, however deep the work folder sits under the root.
+    $up = (@($work.Substring($root.Length).Trim('\').Split('\') | ForEach-Object { '..' }) -join '\')
+    "#EXTM3U`n#EXTINF:5,third`n$up\testmedia\clip03_vp9.webm`n$clip1`n" | Set-Content -Encoding UTF8 $pl
+    Ctl 'open' @($pl) | Out-Null
+    $d = WaitFor { param($d) $d.path -like '*clip03*' } 5000 'playlist file'
+    Check 'm3u8 expanded to 2 items' ($d.playlistCount -eq 2) "$($d.playlistCount) $($d.playlist)"
+    $nested = Join-Path $work 'nested'
+    New-Item -ItemType Directory -Force "$nested\day1\cam", "$nested\day2" | Out-Null
+    Copy-Item (Join-Path $media 'clip05_av1_noaudio.mkv') "$nested\day1\cam\a.mkv"
+    Copy-Item (Join-Path $media 'clip03_vp9.webm') "$nested\day2\b.webm"
+    Ctl 'open' @($nested) | Out-Null
+    $d = WaitFor { param($d) $d.playlistCount -eq 2 -and $d.path -like '*nested*' } 5000 'recursive folder'
+    Check 'folder opened recursively' ($d.playlistCount -eq 2) "$($d.playlist)"
+    Ctl 'open' @($clip1) | Out-Null
+    WaitFor { param($d) $d.path -like '*clip01*' -and $d.playlistCount -eq 5 } 5000 'clip01 folder' | Out-Null
+    Act 'SortPlaylist:Size'; $d = Dump
+    $sizes = @($d.playlist | ForEach-Object { (Get-Item $_).Length })
+    Check 'sort by size ascending' (($sizes -join ',') -eq (($sizes | Sort-Object) -join ',')) ($sizes -join ',')
+    Check 'current item kept' ($d.path -like '*clip01*')
+    Act 'TogglePlaylistSortOrder'; $d = Dump
+    $sizes = @($d.playlist | ForEach-Object { (Get-Item $_).Length })
+    Check 'descending' (($sizes -join ',') -eq (($sizes | Sort-Object -Descending) -join ',')) ($sizes -join ',')
+    Act 'TogglePlaylistSortOrder'; Act 'SortPlaylist:Name'
+}
+
+Test 'launchopts' {
+    Ctl 'open' @('--start=2', '--speed=0.5', '--paused', (Join-Path $media 'clip03_vp9.webm')) | Out-Null
+    $d = WaitFor { param($d) $d.path -like '*clip03*' -and (Near $d.position 2 0.06) } 6000 'start 2'
+    Check '--start=2' (Near $d.position 2 0.06) "$($d.position)"
+    Check '--speed=0.5' (Near $d.speed 0.5 0.001) "$($d.speed)"
+    Check '--paused' ($d.paused -eq $true)
+    Act 'SpeedReset'
+}
+
+# Feature suites: each tools\e2e.d\NN-name.ps1 adds Test blocks using the helpers above
+# (Ctl, Dump, Act, Key, WaitFor, Near, Check, Test, $media, $work, $clip1, $clip4, $settingsPath).
+$suiteDir = Join-Path $PSScriptRoot 'e2e.d'
+if (Test-Path $suiteDir) {
+    foreach ($suite in Get-ChildItem $suiteDir -Filter *.ps1 | Sort-Object Name) { . $suite.FullName }
+}
+
+Test 'quit' {
+    Ctl 'open' @($clip1) | Out-Null
+    WaitFor { param($d) $d.path -like '*clip01*' } 5000 'clip01' | Out-Null
+    Act 'SetRepeat:One'
+    Ctl 'quit' | Out-Null
+    $exited = $proc.WaitForExit(6000)
+    Check 'exits within 6 s' $exited
+    $ini = Get-Content $settingsPath -Raw
+    Check 'settings saved (Repeat=One)' ($ini -match 'Repeat=One')
+    Check 'recent files saved' ($ini -match 'recent\.0=.*clip01')
+}
+
+Test 'single-instance' {
+    $si = Join-Path $work 'si.ini'; Copy-Item $settingsPath $si
+    $a = Start-Process -FilePath $Exe -ArgumentList @('--pipe', "$Pipe-SI", '--settings', "`"$si`"", "`"$clip1`"") -PassThru
+    Start-Sleep -Seconds 3
+    $b = Start-Process -FilePath $Exe -ArgumentList @('--pipe', "$Pipe-SI", '--settings', "`"$si`"", "`"$clip4`"") -PassThru
+    $bExited = $b.WaitForExit(5000)
+    Start-Sleep -Seconds 2
+    $a.Refresh()
+    Check 'second launch exits (handed off)' $bExited
+    Check 'first window now plays clip04' ($a.MainWindowTitle -like 'clip04*') $a.MainWindowTitle
+    $a.CloseMainWindow() | Out-Null
+    Check 'first instance closes' ($a.WaitForExit(6000))
+
+    # Explorer multi-select: one process per file, all started together -> one window, all queued.
+    $burst = Join-Path $work 'burst'; New-Item -ItemType Directory -Force $burst | Out-Null
+    $files = @('x1.mkv', 'x2.webm', 'x3.mkv')
+    Copy-Item (Join-Path $media 'clip05_av1_noaudio.mkv') "$burst\x1.mkv"
+    Copy-Item (Join-Path $media 'clip03_vp9.webm') "$burst\x2.webm"
+    Copy-Item (Join-Path $media 'clip05_av1_noaudio.mkv') "$burst\x3.mkv"
+    $bi = Join-Path $work 'burst.ini'; (Get-Content $settingsPath) + 'AutoLoadFolder=false' | Set-Content -Encoding UTF8 $bi
+    $procs = foreach ($f in $files) { Start-Process -FilePath $Exe -ArgumentList @('--pipe', "$Pipe-B", '--settings', "`"$bi`"", "`"$burst\$f`"") -PassThru }
+    Start-Sleep -Seconds 6
+    $alive = @($procs | Where-Object { -not $_.HasExited })
+    Check 'multi-select: one window remains' ($alive.Count -eq 1) "alive=$($alive.Count)"
+    if ($alive.Count -ge 1) {
+        $alive[0].Refresh()
+        Check 'multi-select: all three queued' ($alive[0].MainWindowTitle -match '\[\d/3\]') $alive[0].MainWindowTitle
+        foreach ($p in $alive) { $p.CloseMainWindow() | Out-Null; $p.WaitForExit(6000) | Out-Null }
+    }
+}
+
+if (-not $proc.HasExited -and -not $KeepOpen) { try { Ctl 'quit' | Out-Null } catch { }; $proc.WaitForExit(5000) | Out-Null }
+$crash = Join-Path $env:LOCALAPPDATA 'VidFlow\crash.log'
+$fail = @($results | Where-Object { -not $_.Pass })
+Write-Host ""
+Write-Host ("{0} checks, {1} passed, {2} failed" -f $results.Count, ($results.Count - $fail.Count), $fail.Count) -ForegroundColor $(if ($fail.Count) { 'Red' } else { 'Green' })
+if ($fail.Count) { $fail | Format-Table -AutoSize | Out-String -Width 220 | Write-Host }
+if (Test-Path $crash) { Write-Host "crash.log exists: $crash" -ForegroundColor Yellow }
+$results | ConvertTo-Json -Depth 3 | Set-Content -Encoding UTF8 (Join-Path $work 'results.json')
+exit $fail.Count

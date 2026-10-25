@@ -1,0 +1,135 @@
+name: Release
+
+# Pushing a tag like v1.0.0 or v1.0.0-beta.4 builds that exact commit and creates a DRAFT
+# release with the exe, the zip, the engine's corresponding source and SHA256SUMS.txt.
+# Nothing is public until a maintainer reviews the draft on GitHub and presses Publish.
+# The tag must match the VERSION file, and CHANGELOG.md needs a dated section for it.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Version from tag
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $v = $env:TAG.Substring(1)
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') { throw "Tag '$env:TAG' is not like v1.2.0 or v1.2.0-beta.4" }
+          $file = (Get-Content VERSION -TotalCount 1).Trim()
+          if ($file -ne $v) { throw "Tag $env:TAG does not match the VERSION file ($file)" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Cache engine archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: third_party/download
+          key: engine-${{ hashFiles('tools/fetch-engine.ps1') }}
+
+      - name: Fetch engine (pinned, SHA-256 checked)
+        run: ./tools/fetch-engine.ps1
+
+      - name: Build
+        env:
+          VIDFLOW_VERSION: ${{ steps.version.outputs.version }}
+        run: ./build.ps1 -Version $env:VIDFLOW_VERSION
+
+      - name: Core tests
+        run: ./tools/run-core-tests.ps1
+
+      - name: Package
+        env:
+          VIDFLOW_VERSION: ${{ steps.version.outputs.version }}
+        run: ./tools/package-release.ps1 -Version $env:VIDFLOW_VERSION -OutDir obj/release-assets -Release
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: release-binaries
+          path: |
+            obj/release-assets/
+            obj/release-notes.md
+          if-no-files-found: error
+
+  engine-source:
+    # GPL corresponding source for the embedded libmpv-2.dll. Keep these pins in step with
+    # tools/fetch-engine.ps1 and THIRD-PARTY-NOTICES.md.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download source archives
+        run: |
+          set -euo pipefail
+          mkdir engine-source
+          cd engine-source
+          get() {  # repository, full commit, file name
+            curl -fsSL --retry 3 -o "$3" "https://github.com/$1/archive/$2.tar.gz"
+            echo "$3: https://github.com/$1/tree/$2" >> engine-source-README.txt
+          }
+          echo "Corresponding source for libmpv-2.dll (mpv-dev-x86_64-20261010-git-b2c255c13e.7z)." > engine-source-README.txt
+          echo "The build recipe pins every other library it compiles; see its packages/ folder." >> engine-source-README.txt
+          echo >> engine-source-README.txt
+          get shinchiro/mpv-winbuild-cmake b2856ee6deed6957380b32465f359e67f67fafd8 mpv-winbuild-cmake-20261010.tar.gz
+          get mpv-player/mpv b2c255c13e8e37952dbac6c34da56a690560378b mpv-b2c255c13e.tar.gz
+          get FFmpeg/FFmpeg ef305e32e8b159699cc4a76fbddcfb8ff210a8c7 ffmpeg-ef305e32e.tar.gz
+          ls -l
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: engine-source
+          path: engine-source/
+          if-no-files-found: error
+
+  draft:
+    needs: [build, engine-source]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: release-binaries
+          path: dl/bin
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: engine-source
+          path: dl/src
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir upload
+          cp dl/bin/release-assets/* dl/src/* upload/
+          cd upload
+          rm -f SHA256SUMS.txt
+          sha256sum -- * > ../SHA256SUMS.txt
+          mv ../SHA256SUMS.txt .
+          cat SHA256SUMS.txt
+          prerelease=()
+          case "$VERSION" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag "${prerelease[@]}" \
+            --title "VidFlow Player $VERSION" --notes-file ../dl/bin/release-notes.md -- *
