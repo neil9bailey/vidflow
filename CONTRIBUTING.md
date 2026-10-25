@@ -63,7 +63,9 @@ audio sent to mpv's null output. New tests must keep to that:
 3. Tag and push: `git tag v1.0.0` then `git push origin v1.0.0`.
 4. The Release workflow builds that commit and creates a **draft** release with the exe, the zip,
    the engine's corresponding source and SHA256SUMS.txt. Check it, then press Publish. (Re-running
-   the workflow makes a second draft; delete the older one.)
+   the workflow makes a second draft; delete the older one.) The engine source is copied from the
+   engine pre-release, so after an engine change run the Engine source workflow first
+   (docs/ENGINE-SOURCE.md).
 
 ## Licence
 

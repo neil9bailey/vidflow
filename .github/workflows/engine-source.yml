@@ -1,0 +1,124 @@
+name: Engine source
+
+# Manual only. Packs the complete corresponding source of the embedded engine (libmpv-2.dll):
+# every library in tools/engine-source.tsv at the revision the upstream build used, in one
+# tarball with a manifest and SHA256SUMS (tools/pack-engine-source.sh, docs/ENGINE-SOURCE.md).
+# The files are always kept as a workflow artifact for 14 days. With "publish" ticked they are
+# also attached to the existing engine-<tag> pre-release, which must stay a pre-release so
+# /releases/latest never points at it, and optionally to one VidFlow release or draft.
+# Tag pushes (release.yml) copy the files from the engine pre-release into every VidFlow release,
+# so run this with "publish" whenever the engine changes, before the next VidFlow release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Attach the files to the engine pre-release
+        type: boolean
+        default: false
+      vidflow_release:
+        description: Also attach them to this VidFlow release or draft (e.g. v1.0.0-beta.4)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-source
+
+jobs:
+  pack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      tag: ${{ steps.engine.outputs.tag }}
+      archive: ${{ steps.engine.outputs.archive }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check the pin list
+        id: engine
+        run: |
+          bash tools/pack-engine-source.sh --check
+          echo "tag=$(sed -n "s/^[$]Tag = '\([^']*\)'.*/\1/p" tools/fetch-engine.ps1)" >> "$GITHUB_OUTPUT"
+          echo "archive=$(sed -n "s/^[$]Archive = '\([^']*\)'.*/\1/p" tools/fetch-engine.ps1)" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch every package and pack
+        run: bash tools/pack-engine-source.sh "$RUNNER_TEMP/engine-source"
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: engine-source-complete
+          path: ${{ runner.temp }}/engine-source/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish:
+    needs: pack
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ENGINE: engine-${{ needs.pack.outputs.tag }}
+      ENGINE_TAG: ${{ needs.pack.outputs.tag }}
+      ENGINE_ARCHIVE: ${{ needs.pack.outputs.archive }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: engine-source-complete
+          path: engine-source
+
+      - name: Attach to the engine pre-release
+        working-directory: engine-source
+        run: |
+          set -euo pipefail
+          sha256sum -c -- "$ENGINE-source-SHA256SUMS.txt"
+          # Only ever add files to the existing pre-release: never create it, never promote it.
+          if [ "$(gh release view "$ENGINE" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" != true ]; then
+            echo "::error::$ENGINE is missing or is not a pre-release"
+            exit 1
+          fi
+          gh release upload "$ENGINE" --repo "$GITHUB_REPOSITORY" --clobber -- "$ENGINE"-source*
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+          if [ "$latest" = "$ENGINE" ]; then
+            echo "::error::/releases/latest points at $ENGINE"
+            exit 1
+          fi
+          gh release view "$ENGINE" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | "\(.name) \(.size)"'
+
+      - name: Attach to the VidFlow release
+        if: inputs.vidflow_release != ''
+        working-directory: engine-source
+        env:
+          TAG: ${{ inputs.vidflow_release }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in v*) ;; *) echo "::error::'$TAG' is not a VidFlow release tag"; exit 1 ;; esac
+          # Same text as the engine-source job in release.yml writes.
+          cat > engine-source-README.txt <<EOF
+          Corresponding source for libmpv-2.dll, the playback engine inside VidFlow.exe
+          ($ENGINE_ARCHIVE from shinchiro/mpv-winbuild-cmake, release $ENGINE_TAG).
+
+          $ENGINE-source.tar.xz is the complete source: the build recipe and every library linked
+          into the engine, each at the exact revision the upstream build used, plus the Rust crates it
+          links. $ENGINE-source-manifest.tsv lists each item with its version, source location,
+          revision and licence.
+
+          The same files are on https://github.com/$GITHUB_REPOSITORY/releases/tag/$ENGINE
+          How the revisions were established: docs/ENGINE-SOURCE.md in the VidFlow source.
+          EOF
+          new=("$ENGINE-source.tar.xz" "$ENGINE-source-manifest.tsv" engine-source-README.txt)
+          # Keep the release's SHA256SUMS.txt complete: replace the lines for these files.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -O sums-before.txt
+          { grep -v -F -e "  ${new[0]}" -e "  ${new[1]}" -e "  ${new[2]}" sums-before.txt || true
+            sha256sum -- "${new[@]}"; } > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber -- "${new[@]}" SHA256SUMS.txt

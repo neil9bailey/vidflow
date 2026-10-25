@@ -1,0 +1,89 @@
+package	version	source	revision	paths	submodules	licence	basis
+mpv-winbuild-cmake	20261010	https://github.com/shinchiro/mpv-winbuild-cmake.git	b2856ee6deed6957380b32465f359e67f67fafd8	-	-	no licence file (build recipe)	release tag 20261010
+amf-headers	git 2026-09-29	https://github.com/GPUOpen-LibrariesAndSDKs/AMF.git	8c648005e07d4309033282bfd9947df2c7e76104	amf/public/include	-	MIT	build log
+angle-headers	git 2026-07-06	https://github.com/google/angle.git	0cb8023c01f92b29f3738ea7472d06f8f059ed84	include/EGL include/KHR	-	BSD-3-Clause	recipe pin (GIT_RESET)
+aom	git 2026-10-09	https://aomedia.googlesource.com/aom	8fbd65b2f354e1d7059f8b1899f3f0373d1b3e2a	-	-	BSD-2-Clause + AOM patent licence	build log
+avisynth-headers	git 2025-01-29	https://github.com/AviSynth/AviSynthPlus.git	21fdc997f9724b994896ba5520ddf64d677976b3	/* !distrib	-	GPL-2.0-or-later with linking exception	recipe pin (GIT_RESET)
+brotli	git 2026-10-05	https://github.com/google/brotli.git	392b261debb0f478811ddacb98b118da36b06158	/* !tests !js !java !research	-	MIT	build log
+bzip2	git 2023-06-01	https://gitlab.com/bzip2/bzip2.git	66c46b8c9436613fd81bc5d03f63a61933a4dcc3	-	-	bzip2-1.0.6	unchanged since 2026-08-05 clone
+c-ares	git 2026-10-01	https://github.com/c-ares/c-ares.git	f4156c12c8b36f5cb8f8a53658d44b24263c6ad1	-	-	MIT	build log
+curl	8.22.0-DEV	https://github.com/curl/curl.git	24ff74fa8db2dd84b2acd190a1bcc04b7d69e1e7	/* !tests !docs	-	curl	cloned 2026-08-06, never updated
+dav1d	git 2026-10-01	https://code.videolan.org/videolan/dav1d.git	99f3354ed0b9b4bf3c7c9347318dbcc522c94af5	-	-	BSD-2-Clause	build log
+davs2	git 2023-09-28	https://github.com/saindriches/davs2.git	f50435051b72c168c2b566c544e27fcff71ba61a	-	-	GPL-2.0-or-later	unchanged since 2026-08-05 clone
+fast_float	v8.3.2	https://github.com/fastfloat/fast_float.git	42f254836ee416ffcf2f4e6576260003ac33d48c	-	-	Apache-2.0 OR MIT OR BSL-1.0	build log
+ffmpeg	N-127267-gef305e32e	https://github.com/FFmpeg/FFmpeg.git	ef305e32e8b159699cc4a76fbddcfb8ff210a8c7	/* !tests/ref/fate	-	GPL-3.0-or-later (--enable-gpl --enable-version3)	build log
+fontconfig	git 2026-10-09	https://gitlab.freedesktop.org/fontconfig/fontconfig.git	129ddf32994886b52b1ca91fdde305b426b5d526	-	-	MIT-style (fontconfig COPYING)	build log
+freetype2	git 2026-10-09	https://github.com/freetype/freetype.git	e2526d30e673c3063209bcbad8bdfc7fe1745fc3	-	-	FTL OR GPL-2.0-or-later	build log
+fribidi	git 2026-09-24	https://github.com/fribidi/fribidi.git	24f15eee832eafa5d63319b666d50e488668ce31	/* !test	-	LGPL-2.1-or-later	build log
+glad	git 2026-09-28	https://github.com/Dav1dde/glad.git	0a7cf1af9e25e02821587bd4095807fc90b6426a	-	-	MIT (generator)	build log
+glslang	git 2026-10-09	https://github.com/KhronosGroup/glslang.git	79c91f375f7e278cf99d6925c2b8d3de83ef0f53	/* !Test	-	BSD-3-Clause and others (LICENSE.txt)	build log
+graphengine	git 2026-08-01	https://github.com/sekrit-twc/graphengine.git	91c6af4c795c5396d8b974f24b4d2e2ecca04e2d	-	-	WTFPL	unchanged since 2026-08-05 clone
+harfbuzz	git 2026-10-09	https://github.com/harfbuzz/harfbuzz.git	c82300aefbae21d6483bf1b587f4b49c8191b2ec	/* !test	-	MIT	build log
+highway	git 2026-10-09	https://github.com/google/highway.git	b93ad441d9cbeb7d7629281992b796a73033996a	-	-	Apache-2.0 OR BSD-3-Clause	build log
+lame	debian/3.100-6	https://gitlab.com/shinchiro/lame.git	9a5b35c430a2e6d150d65a96c7d7acdd64962a8f	-	-	LGPL-2.0-or-later	unchanged since 2026-08-05 clone
+lcms2	git 2026-10-05	https://github.com/mm2/Little-CMS.git	15c24e7ded91184c38c46c096804fa7272765737	-	-	MIT	build log
+libarchive	git 2026-10-09	https://github.com/libarchive/libarchive.git	bfcf2a5bd241a4d4ccc814e16a618d188746cb88	-	-	BSD-2-Clause	build log
+libaribcaption	git 2026-10-06	https://github.com/xqq/libaribcaption.git	6c3b4f361bc8f65b34497ba0d123c5aea6f9ed84	-	-	MIT	build log
+libass	git 2026-09-17	https://github.com/libass/libass.git	f61db567e6593df3470e91594bcd4ad2d0473aff	-	-	ISC	build log
+libbluray	1.5.1	https://code.videolan.org/videolan/libbluray.git	a24f4fad4d62893de647abc8671397747b2359dd	-	-	LGPL-2.1-or-later	build log
+libbs2b	git 2014-10-17	https://github.com/alexmarsev/libbs2b.git	5ca2d59888df047f1e4b028e3a2fd5be8b5a7277	-	-	MIT	unchanged since 2026-08-05 clone
+libdvdcss	git 2026-07-28	https://code.videolan.org/videolan/libdvdcss.git	811ce97a1d4d1c9d936f4b2707f533a9ef768251	-	-	GPL-2.0-or-later	unchanged since 2026-08-05 clone
+libdvdnav	git 2026-08-21	https://code.videolan.org/videolan/libdvdnav.git	8147ccd35e5aae4afdd21171cf7b6b4d8f179d28	-	-	GPL-2.0-or-later	build log
+libdvdread	git 2026-08-21	https://code.videolan.org/videolan/libdvdread.git	0f30df53125b564ef45903714403ce0a1e6c5e9e	-	-	GPL-2.0-or-later	build log
+libiconv	1.18	https://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.18.tar.gz	sha256:3b08f5f4f9b4eb82f151a7040bfd6fe6c6fb922efe4b1659c66ea933276965e8	-	-	LGPL-2.1-or-later	tarball hash in recipe
+libjpeg	git 2026-10-07	https://github.com/libjpeg-turbo/libjpeg-turbo.git	43ea809765004508d8da72ebe562cf570c6a62b2	-	-	IJG AND BSD-3-Clause AND Zlib	build log
+libjxl	git 2026-10-06	https://github.com/libjxl/libjxl.git	ef67fde2ec16d52e644c5a0969230b9a85e3eb31	-	-	BSD-3-Clause	build log
+libmodplug	git 2022-01-30	https://github.com/Konstanty/libmodplug.git	d1b97ed0020bc620a059d3675d1854b40bd2608d	-	-	public domain	unchanged since 2026-08-05 clone
+libmysofa	git 2026-09-08	https://github.com/hoene/libmysofa.git	648eed03472e6720a1ea45d1a1f86c4efb569ff9	/* !tests	-	BSD-3-Clause	build log
+libopenmpt	0.7.12	https://lib.openmpt.org/files/libopenmpt/src/libopenmpt-0.7.12+release.autotools.tar.gz	sha256:79ab3ce3672601e525b5cc944f026c80c03032f37d39caa84c8ca3fdd75e0c98	-	-	BSD-3-Clause	tarball hash in recipe
+libplacebo	git 2026-10-05	https://github.com/haasn/libplacebo.git	0d043c7f6f79cd3687c023454bdacbe615e4d96f	-	-	LGPL-2.1-or-later	build log
+libpng	git 2026-10-05	https://github.com/glennrp/libpng.git	18ea3e9404a09f42d92f952a4c0d1dd3d688182a	-	-	libpng-2.0	build log
+libpsl	0.23.1	https://github.com/rockdaboot/libpsl.git	aa3a80e18f25caf3916636c8668dcc0fff7c016d	/* !/fuzz !tests !tools tools/meson.build	list	MIT (built-in list: MPL-2.0)	recipe pin (GIT_RESET)
+libsamplerate	git 2026-08-13	https://github.com/libsndfile/libsamplerate.git	0844c208f683527c08ea8a80acc13b398aa9c8bf	-	-	BSD-2-Clause	build log
+libsdl2	git 2026-10-07	https://github.com/libsdl-org/SDL.git	74be4c2836da0940f0144d0d97852606f9ab11e9	/* !test	-	Zlib	build log
+libsixel	git 2026-04-14	https://github.com/saitoha/libsixel.git	af12e5bc6f3f69ad83479da85ddb371420da9b17	/* !images	-	MIT	recipe pin (GIT_RESET)
+libsoxr	0.1.3	https://gitlab.com/shinchiro/soxr.git	945b592b70470e29f917f4de89b4281fbbd540c0	-	-	LGPL-2.1-or-later	unchanged since 2026-08-05 clone
+libsrt	git 2026-10-09	https://github.com/Haivision/srt.git	fa054b585784c8425f63323303ed44af9ca0529b	-	-	MPL-2.0	build log
+libssh	git 2026-10-06	https://gitlab.com/libssh/libssh-mirror.git	7b3ba877209ae2355f12f4a7ab56022337caaaf5	-	-	LGPL-2.1-or-later	build log
+libudfread	git 2026-08-30	https://code.videolan.org/videolan/libudfread.git	b0bc6957e7e07d5f35391f210596d9eb71cffdd9	-	-	LGPL-2.1-or-later	build log
+libunibreak	git 2026-10-07	https://github.com/adah1972/libunibreak.git	f8172fe771ef620112247cadfb876aecaa4f769e	-	-	Zlib	build log
+libva	git 2026-09-23	https://github.com/intel/libva.git	f3fefceb192ca28abf588aadf2392350aebf46ce	-	-	MIT	build log
+libvpl	git 2026-07-13	https://github.com/intel/libvpl.git	674d015bcb294bc39fa276e99a652ea045423e82	-	-	MIT	unchanged since 2026-08-05 clone
+libvpx	git 2026-10-08	https://chromium.googlesource.com/webm/libvpx.git	ed2a5b572f0f62a72d2e483dd3031841f08fb343	-	-	BSD-3-Clause	build log
+libwebp	git 2026-10-09	https://chromium.googlesource.com/webm/libwebp.git	68dd1c3040d500f56fe7ffb754b1813fb64b5887	-	-	BSD-3-Clause	build log
+libxml2	git 2026-09-23	https://github.com/GNOME/libxml2.git	c43dc98d27ac315a48d93dbd399c6c22cf7125b1	/* !result !test	-	MIT	build log
+libzimg	git 2026-09-04	https://github.com/sekrit-twc/zimg.git	67e0603271c080e22c8429856dd4a8a56587e61e	-	-	WTFPL	build log
+libzvbi	v0.2.45	https://github.com/zapping-vbi/zvbi.git	d3a5ee9f2b047bf16cd1ee5ccf6ec05ee75409d0	-	-	GPL-2.0-or-later (parts LGPL/MIT/BSD)	build log
+luajit	v2.1-20260917	https://github.com/openresty/luajit2.git	f75bf45e8b869a8ee4562ab0183322c3ebf2d9f3	-	-	MIT	build log
+lzo	2.10	https://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz	sha1:4924676a9bae5db58ef129dc1cebce3baa3c4b5d	-	-	GPL-2.0-or-later	tarball hash in recipe
+mpv	v0.41.0-1115-gb2c255c13	https://github.com/mpv-player/mpv.git	b2c255c13e8e37952dbac6c34da56a690560378b	-	-	GPL-2.0-or-later (GPL build)	build log
+mujs	git 2026-10-06	https://codeberg.org/ccxvii/mujs.git	aab59f2c8136b55e8eef7a016d5a15fe8cf69f3f	-	-	ISC	build log
+nghttp2	git 2026-10-03	https://github.com/nghttp2/nghttp2.git	7a6d122aac527b65434314c2a115f07281e08dbf	-	-	MIT	build log
+nghttp3	git 2026-09-17	https://github.com/ngtcp2/nghttp3.git	2304973e5a0c8b1fa4bb380b47945a000357f87f	/* !tests	lib/sfparse	MIT	build log
+ngtcp2	git 2026-10-04	https://github.com/ngtcp2/ngtcp2.git	b9fc4d55ce6035a4cc76dc456ced6371e98f9214	/* !tests	-	MIT	build log
+nvcodec-headers	git 2026-07-14	https://github.com/FFmpeg/nv-codec-headers.git	eddcea9e27f6b772057c9b3f87de2cc1737faffc	-	-	MIT	unchanged since 2026-08-05 clone
+ogg	git 2026-03-02	https://github.com/xiph/ogg.git	06a5e0262cdc28aa4ae6797627a783b5010440f0	-	-	BSD-3-Clause	unchanged since 2026-08-05 clone
+openal-soft	git 2026-10-08	https://github.com/kcat/openal-soft.git	09e2be796e34ad4b6b129204ba2d187bf4577924	-	-	LGPL-2.0-or-later	build log
+openssl	git 2026-07-18	https://github.com/openssl/openssl.git	d8bf6cdd4849925c30e4f1911c7acb49cb34b702	/* !test	-	Apache-2.0	recipe pin (GIT_RESET)
+opus	git 2026-09-11	https://github.com/xiph/opus.git	503d81b138d76621aae4b12786e90de48aa8db3a	-	-	BSD-3-Clause	build log
+opus-dnn	model data	https://media.xiph.org/opus/models/opus_data-8a07d57c4fce6fb30f23b3e0d264004e04f1d7b421f5392ef61543d021a439af.tar.gz	sha256:8a07d57c4fce6fb30f23b3e0d264004e04f1d7b421f5392ef61543d021a439af	-	-	BSD-3-Clause	tarball hash in recipe
+rubberband	git 2025-02-27	https://github.com/breakfastquay/rubberband.git	e4296ac80b1170018a110bc326fd0d45a0eb27d6	-	-	GPL-2.0-or-later	unchanged since 2026-08-05 clone
+shaderc	git 2026-10-02	https://github.com/google/shaderc.git	ba3e587dbc13d423c713e964ac08e094731a034d	-	-	Apache-2.0	build log
+speex	git 2026-06-18	https://github.com/xiph/speex.git	a1b872e6704cc5825750098ce0e0c0b4aacaef4d	-	-	BSD-3-Clause	unchanged since 2026-08-05 clone
+spirv-cross	git 2026-09-22	https://github.com/KhronosGroup/SPIRV-Cross.git	aa217aeb6c9f0ace7a0ab233b28807edf45eb165	-	-	Apache-2.0	build log
+spirv-headers	git 2026-10-02	https://github.com/KhronosGroup/SPIRV-Headers.git	86f980c731e62ae4eaf383d320449d71687936bf	-	-	MIT	build log
+spirv-tools	git 2026-10-08	https://github.com/KhronosGroup/SPIRV-Tools.git	e56740d931256cc464d4d1a76149f69469c33f70	-	-	Apache-2.0	build log
+subrandr	git 2026-09-27	https://github.com/afishhh/subrandr.git	eaf47d947e754565fe60e88ffe9665a2a32b18d5	-	-	MPL-2.0	build log
+svtav1	git 2026-10-08	https://gitlab.com/AOMediaCodec/SVT-AV1.git	049193fc0e16ba7f1afe8baa51292157b681cb2a	-	-	BSD-3-Clause-Clear + AOM patent licence	build log
+uavs3d	1.2	https://github.com/uavs3/uavs3d.git	0e20d2c291853f196c68922a264bcd8471d75b68	-	-	BSD-3-Clause	unchanged since 2026-08-05 clone
+uchardet	git 2025-08-08	https://gitlab.freedesktop.org/uchardet/uchardet.git	06029ec3340cdf6bf9a6a537dafb3f39eda0560e	-	-	MPL-1.1 OR GPL-2.0-or-later OR LGPL-2.1-or-later	unchanged since 2026-08-05 clone
+vapoursynth	R72	https://github.com/vapoursynth/vapoursynth.git	e46204429041e95a881b61eedddd46c08f9a307c	/include !include/cython	-	LGPL-2.1-or-later	recipe pin (GIT_RESET)
+vorbis	git 2026-08-04	https://github.com/xiph/vorbis.git	1b75110b5a2754ba1931d82dd83cb822b266a21d	-	-	BSD-3-Clause	unchanged since 2026-08-05 clone
+vulkan	git 2026-10-09	https://github.com/KhronosGroup/Vulkan-Loader.git	ece6d2942e766bc69b4d5b24a94bd1bf90f6a4d2	-	-	Apache-2.0	build log
+vulkan-header	v1.4.365	https://github.com/KhronosGroup/Vulkan-Headers.git	c46850864f4661461b0f6cb9922c058ffea4915e	-	-	Apache-2.0 OR MIT	build log
+x264	git 2025-09-10	https://code.videolan.org/videolan/x264.git	0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee	-	-	GPL-2.0-or-later	unchanged since 2026-08-05 clone
+x265	git 2026-10-08	https://github.com/Multicorewareinc/x265.git	811d15461782cf29e7c028578e677f6265a61041	-	-	GPL-2.0-or-later	build log
+xxhash	git 2026-09-20	https://github.com/Cyan4973/xxHash.git	680bf463fa1ca0461b9a7c2dab7556e1f54cf4cf	-	-	BSD-2-Clause	build log
+xz	v5.8.2	https://github.com/tukaani-project/xz.git	3d078b52adbff566ccfc51067dfbf742ecf3ef86	-	-	0BSD	recipe pin (GIT_RESET)
+zlib	git 2026-10-07	https://github.com/zlib-ng/zlib-ng.git	f18efb822a2fc24a1209a836d51bb217476fc08e	-	-	Zlib	build log
+zstd	git 2026-10-06	https://github.com/facebook/zstd.git	49cf51799ea051457f57243527aa2058f999f005	-	-	BSD-3-Clause OR GPL-2.0-only	build log

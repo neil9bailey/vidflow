@@ -3,7 +3,8 @@
   Puts the pinned libmpv engine into third_party\libmpv (used by build.ps1 and CI).
   Downloads the exact archive below, refuses it unless its SHA-256 matches, and extracts it.
   Does nothing when the expected libmpv-2.dll is already there.
-  To move to a newer engine: change the three pinned values (and THIRD-PARTY-NOTICES.md).
+  To move to a newer engine: change the three pinned values (and THIRD-PARTY-NOTICES.md), and
+  re-establish its source pins in tools/engine-source.tsv (docs/ENGINE-SOURCE.md).
 #>
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
