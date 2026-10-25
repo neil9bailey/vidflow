@@ -3,10 +3,15 @@
 Notable changes to VidFlow Player. Versions follow [Semantic Versioning](https://semver.org);
 the release workflow copies the section for the tagged version into the release notes.
 
-## [1.0.0-beta.4] - Unreleased
+## [1.0.0-beta.4] - 2026-10-25
+
+First public build, from https://github.com/neil9bailey/vidflow.
 
 ### Added
-- About shows the exact version; every build is stamped from the `VERSION` file or the release tag.
+- Help > Check for Updates works out of the box: one request to GitHub, only when you click it.
+  Settings saved by beta 3 keep it hidden; set `UpdateRepo=neil9bailey/vidflow` in `VidFlow.ini`
+  to turn it on there.
+- About shows the exact version and links to the source code.
 
 ### Changed
 - Check for Updates understands pre-release versions: a beta is offered the final release of the
