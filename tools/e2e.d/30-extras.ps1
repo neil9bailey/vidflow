@@ -144,14 +144,18 @@ function Start-ExtrasAction([string]$pipe, [string]$id) {
     } -ArgumentList $pipe, $id
 }
 
+# The answer of a Start-ExtrasAction job once its dialog has closed. Not Receive-Job -Wait
+# -AutoRemoveJob: that threw "cannot remove the job because it does not exist" when the job ended
+# during the wait (seen on a loaded machine).
+function Receive-ExtrasAction($job) {
+    Wait-Job $job -Timeout ([int]((Scaled 20000) / 1000)) | Out-Null
+    $r = Receive-Job $job -ErrorAction SilentlyContinue
+    Remove-Job $job -Force -ErrorAction SilentlyContinue
+    return $r
+}
+
 function Wait-ExtrasWindow([int]$procId, [string]$title, [int]$ms = 8000) {
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ($sw.ElapsedMilliseconds -lt $ms) {
-        $h = [VidFlowExtrasWin]::FindTop($procId, $title)
-        if ($h -ne [IntPtr]::Zero) { return $h }
-        Start-Sleep -Milliseconds 100
-    }
-    return [IntPtr]::Zero
+    return Poll { [VidFlowExtrasWin]::FindTop($procId, $title) } { param($h) $h -ne [IntPtr]::Zero } $ms
 }
 
 # Fills a Save dialog's file name and confirms it (WM_COMMAND IDOK), all by window messages.
@@ -159,21 +163,18 @@ function Complete-ExtrasSaveDialog([int]$procId, [string]$title, [string]$path) 
     $dlg = Wait-ExtrasWindow $procId $title
     if ($dlg -eq [IntPtr]::Zero) { return "dialog '$title' not found" }
     Start-Sleep -Milliseconds 400
-    $edit = [IntPtr]::Zero
-    for ($i = 0; $i -lt 30 -and $edit -eq [IntPtr]::Zero; $i++) { $edit = [VidFlowExtrasWin]::FileNameEdit($dlg); if ($edit -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 100 } }
+    $edit = Poll { [VidFlowExtrasWin]::FileNameEdit($dlg) } { param($e) $e -ne [IntPtr]::Zero } 3000
     if ($edit -eq [IntPtr]::Zero) { [void][VidFlowExtrasWin]::PostMessage($dlg, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero); return 'file name box not found' }
     [void][VidFlowExtrasWin]::SetText($edit, $path)
     [void][VidFlowExtrasWin]::PostMessage($dlg, 0x0111, [IntPtr]1, [IntPtr]::Zero)   # WM_COMMAND IDOK
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ([VidFlowExtrasWin]::IsWindow($dlg) -and $sw.ElapsedMilliseconds -lt 5000) { Start-Sleep -Milliseconds 100 }
+    Poll { [VidFlowExtrasWin]::IsWindow($dlg) } { param($open) -not $open } 5000 | Out-Null
     if ([VidFlowExtrasWin]::IsWindow($dlg)) { [void][VidFlowExtrasWin]::PostMessage($dlg, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero); return 'dialog did not accept the name' }
     return 'ok'
 }
 
 function Close-ExtrasWindow([IntPtr]$h) {
     [void][VidFlowExtrasWin]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)   # WM_CLOSE = cancel
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ([VidFlowExtrasWin]::IsWindow($h) -and $sw.ElapsedMilliseconds -lt 4000) { Start-Sleep -Milliseconds 100 }
+    Poll { [VidFlowExtrasWin]::IsWindow($h) } { param($open) -not $open } 4000 | Out-Null
     return -not [VidFlowExtrasWin]::IsWindow($h)
 }
 
@@ -196,7 +197,7 @@ Test 'extras-export' {
     $csv = Join-Path $work 'extras-markers.csv'
     $job = Start-ExtrasAction $Pipe 'ExportMarkersCsv'
     $r = Complete-ExtrasSaveDialog $proc.Id 'Export Markers as CSV' $csv
-    $resp = Receive-Job $job -Wait -AutoRemoveJob
+    $resp = Receive-ExtrasAction $job
     Check 'CSV save dialog driven' ($r -eq 'ok') "$r / action: $resp"
     Check 'CSV written' (Test-Path $csv) $csv
     if (Test-Path $csv) {
@@ -226,7 +227,7 @@ Test 'extras-export' {
     $edl = Join-Path $work 'extras-clip04.edl'
     $job = Start-ExtrasAction $Pipe 'ExportMarkersEdl'
     $r = Complete-ExtrasSaveDialog $proc.Id 'Export Markers as EDL' $edl
-    $resp = Receive-Job $job -Wait -AutoRemoveJob
+    $resp = Receive-ExtrasAction $job
     Check 'EDL save dialog driven' ($r -eq 'ok') "$r / action: $resp"
     if (Test-Path $edl) {
         $text = [IO.File]::ReadAllText($edl)
@@ -244,7 +245,7 @@ Test 'extras-export' {
     $job = Start-ExtrasAction $Pipe 'ExportMarkersEdl'
     $dlg = Wait-ExtrasWindow $proc.Id 'Export Markers as EDL'
     $closed = $dlg -ne [IntPtr]::Zero -and (Close-ExtrasWindow $dlg)
-    Receive-Job $job -Wait -AutoRemoveJob | Out-Null
+    Receive-ExtrasAction $job | Out-Null
     Check 'cancelled export writes nothing' ($closed -and (Dump).markerExport.lastPath -eq $before) "closed=$closed"
 
     # OSD status line: plain "F" for this constant-frame-rate clip.
@@ -276,7 +277,7 @@ Test 'extras-df-vfr' {
     $edl = Join-Path $work 'extras-2997.edl'
     $job = Start-ExtrasAction $Pipe 'ExportMarkersEdl'
     $r = Complete-ExtrasSaveDialog $proc.Id 'Export Markers as EDL' $edl
-    Receive-Job $job -Wait -AutoRemoveJob | Out-Null
+    Receive-ExtrasAction $job | Out-Null
     $text = if (Test-Path $edl) { [IO.File]::ReadAllText($edl) } else { '' }
     Check '29.97: drop-frame EDL, frame 60 -> 01:00:02;00' ($r -eq 'ok' -and $text -match 'FCM: DROP FRAME' -and
         $text -match '001  001      V     C        01:00:02;00 01:00:02;01 01:00:02;00 01:00:02;01  ') ($text -replace "`r`n", '\n')
@@ -285,19 +286,17 @@ Test 'extras-df-vfr' {
     Ctl 'open' @($vfr) | Out-Null
     WaitFor { param($d) $d.path -like '*fr_vfr_steps.mp4' -and $d.fps -gt 0 } 8000 'VFR clip' | Out-Null
     # The frame probe's verdict: the dump's "vfr" when present, else the user-data VidFlow mirrors it to.
-    $sw = [Diagnostics.Stopwatch]::StartNew(); $v = ''
-    while ($sw.ElapsedMilliseconds -lt 10000 -and $v -ne 'yes') {
-        Start-Sleep -Milliseconds 200
+    $v = Poll {
         $d = Dump
-        if ($null -ne $d.PSObject.Properties['vfr']) { $v = if ($d.vfr -eq $true) { 'yes' } else { "$($d.vfr)" } }
-        else { $v = (Ctl 'get' @('user-data/vidflow/vfr')).Trim('"') }
-    }
+        if ($null -ne $d.PSObject.Properties['vfr']) { if ($d.vfr -eq $true) { 'yes' } else { "$($d.vfr)" } }
+        else { (Ctl 'get' @('user-data/vidflow/vfr')).Trim('"') }
+    } { param($v) $v -eq 'yes' } 10000 200
     if ($v -ne 'yes') { Write-Host "  (skipped: the frame probe did not report VFR: '$v')" -ForegroundColor Yellow; return }
     Start-Sleep -Milliseconds 300   # the next time-pos update re-sends the status line
     if (-not (Dump).paused) { Act 'PlayPause' }
     Ctl 'mpv' @('seek', '1', 'absolute+exact') | Out-Null
     WaitFor { param($d) Near $d.position 1 0.1 } 3000 'pos 1' | Out-Null
-    $msg = Ctl 'get' @('osd-status-msg')
+    $msg = Poll { Ctl 'get' @('osd-status-msg') } { param($m) $m -match '≈F \$\{estimated-frame-number\}' }
     Check 'VFR: osd-status-msg shows "≈F"' ($msg -match '≈F \$\{estimated-frame-number\}') $msg
     Ctl 'action' @('ClearMarkers') | Out-Null
     Act 'AddMarker'
@@ -305,14 +304,13 @@ Test 'extras-df-vfr' {
     $csv = Join-Path $work 'extras-vfr.csv'
     $job = Start-ExtrasAction $Pipe 'ExportMarkersCsv'
     $r = Complete-ExtrasSaveDialog $proc.Id 'Export Markers as CSV' $csv
-    Receive-Job $job -Wait -AutoRemoveJob | Out-Null
+    Receive-ExtrasAction $job | Out-Null
     $rows = if (Test-Path $csv) { @(Import-Csv $csv) } else { @() }
     Check 'VFR: CSV marks the frame approximate' ($r -eq 'ok' -and $rows.Count -eq 1 -and $rows[0].Approximate -eq 'yes' -and $rows[0].File -eq 'fr_vfr_steps.mp4') (($rows | ConvertTo-Json -Compress))
     Act 'ClearMarkers'
     Ctl 'open' @($clip1) | Out-Null
     WaitFor { param($d) $d.path -like '*clip01*' } 8000 'clip01 again' | Out-Null
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    do { Start-Sleep -Milliseconds 200; $msg = Ctl 'get' @('osd-status-msg') } while ($msg -match '≈' -and $sw.ElapsedMilliseconds -lt 3000)
+    $msg = Poll { Ctl 'get' @('osd-status-msg') } { param($m) $m -notmatch '≈' } 3000 200
     Check 'back on a CFR clip: plain "F" again' ($msg -match '   F \$\{estimated-frame-number\}' -and $msg -notmatch '≈') $msg
 }
 
@@ -343,8 +341,7 @@ recent.1=$clip4
     $p = Start-Process -FilePath $Exe -ArgumentList @('--automation', '--pipe', $Pipe, '--settings', "`"$ini`"", '--log', "`"$work\extras-vidflow.log`"") -PassThru
     $env:VIDFLOW_UPDATE_API = $null
     try {
-        $sw = [Diagnostics.Stopwatch]::StartNew(); $up = $false
-        while (-not $up -and $sw.ElapsedMilliseconds -lt 15000) { try { $up = (Ctl 'activate') -eq 'ok' } catch { Start-Sleep -Milliseconds 150 } }
+        $up = Wait-Pipe 15000
         Check 'second instance up' $up
 
         # ---- quick start card ----
@@ -387,7 +384,7 @@ recent.1=$clip4
         # A press that starts on "Got it" but is released elsewhere does nothing.
         [void][VidFlowExtrasWin]::PostMouse($hostH, 0x0201, 1, $gx, $gy)
         [void][VidFlowExtrasWin]::PostMouse($hostH, 0x0202, 0, 5, 5)
-        Start-Sleep -Milliseconds 400
+        Start-Sleep -Milliseconds (Scaled 400)
         Check 'release off the button does not dismiss' ((Dump).quickStart.visible)
 
         # ---- update check: never automatic ----
@@ -442,16 +439,18 @@ recent.1=$clip4
         Check 'error dialog closed' (& $closeDialog)
 
         # A server that never answers: the request gives up after 10 s, the UI stays responsive.
+        # The 3 s of slack on top of VidFlow's 10 s (dialog, polling) stretch with the load measured
+        # meanwhile, never past 16 s: the server answers at 20 s, which a missing timeout would wait for.
         $server.DelayMs = 20000; $server.Body = '{"tag_name":"v9.9.9"}'
-        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $load = [E2ELoad]::Mark(); $sw = [Diagnostics.Stopwatch]::StartNew()
         Act 'CheckForUpdates'
         Start-Sleep -Milliseconds 500
         Act 'CheckForUpdates'   # while busy: ignored
         $d = Dump
         Check 'busy: second click ignored' ($d.update.busy -and $d.update.checks -eq 6 -and "$($d.lastOsd)" -like 'Already checking*') "busy=$($d.update.busy) checks=$($d.update.checks) osd=$($d.lastOsd)"
         $d = WaitFor { param($d) $d.update.checks -eq 6 -and -not $d.update.busy -and $d.update.dialogOpen } 16000 'update timeout'
-        $secs = $sw.Elapsed.TotalSeconds
-        Check 'timeout after ~10 s' ($d.update.status -eq 'Failed' -and "$($d.update.error)" -like 'No answer within 10*' -and $secs -ge 9.5 -and $secs -le 13) ("{0}: {1} after {2:N1} s" -f $d.update.status, $d.update.error, $secs)
+        $secs = $sw.Elapsed.TotalSeconds; $limit = [math]::Min(16, 10 + 3 * [E2ELoad]::Factor($load))
+        Check 'timeout after ~10 s' ($d.update.status -eq 'Failed' -and "$($d.update.error)" -like 'No answer within 10*' -and $secs -ge 9.5 -and $secs -le $limit) ("{0}: {1} after {2:N1} s (limit {3:N1} s)" -f $d.update.status, $d.update.error, $secs, $limit)
         Check 'timeout dialog closed' (& $closeDialog)
         Check 'exactly one request per click' ($server.Requests -eq 6) "requests=$($server.Requests)"
 
@@ -463,7 +462,7 @@ recent.1=$clip4
         Check 'ShowQuickStart over video -> OSD keys' ("$((Dump).lastOsd)" -like '*six keys*Ctrl+Enter*apply*') "$((Dump).lastOsd)"
     } finally {
         try { Ctl 'quit' | Out-Null } catch { }
-        if (-not $p.WaitForExit(6000)) { try { $p.Kill() } catch { } }
+        if (-not $p.WaitForExit((Scaled 6000))) { try { $p.Kill() } catch { } }
         $server.Dispose()
     }
 }

@@ -11,8 +11,9 @@ New-Item -ItemType Directory -Force $frShots | Out-Null
 # While mpv seeks, time-pos (and so the frame number) already reports the target; wait until the
 # frame is really decoded and shown.
 function Wait-Settled([int]$ms = 20000) {
+    $limit = Scaled $ms; $load = [E2ELoad]::Mark()
     $sw = [Diagnostics.Stopwatch]::StartNew(); $calm = 0
-    while ($sw.ElapsedMilliseconds -lt $ms -and $calm -lt 2) {
+    while ($calm -lt 2 -and -not (Overdue $sw $limit $load)) {
         if ((Ctl 'get' @('seeking')) -eq 'no') { $calm++ } else { $calm = 0 }
         Start-Sleep -Milliseconds 30
     }
@@ -54,9 +55,7 @@ function Open-FrameClip([string]$name) {
     $d = WaitFor { param($d) $d.path -like "*$name" -and $d.frameCount -gt 0 -and $null -ne $d.frame } 8000 $name
     if (-not $d.paused) { Act 'PlayPause' }
     # The container probe answers within a few ms of the file start; give it a moment on a busy disk.
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    do { $f = Get-FrameFlags; if ($null -ne $f.Vfr) { break }; Start-Sleep -Milliseconds 50 } while ($sw.ElapsedMilliseconds -lt 3000)
-    return $f
+    return Poll { Get-FrameFlags } { param($f) $null -ne $f.Vfr } 3000 50
 }
 
 # Raw mpv exact seek (bypasses VidFlow's own seek code), settled.
@@ -140,9 +139,10 @@ Test 'frames-vfr' {
         Seek-Frame 4.5 -1 | Out-Null
         Start-Sleep -Milliseconds 300
         $d = Dump; $b0 = Read-FrameBarcode
-        Key @('.') | Out-Null; Start-Sleep -Milliseconds 400
+        # Each step has landed once the clock moves (a step is one real frame, so the time changes).
+        Key @('.') | Out-Null; $p1 = (Settled { param($s) $s.position -gt $d.position } 4000).position
         $b1 = Read-FrameBarcode
-        Key @(',') | Out-Null; Start-Sleep -Milliseconds 600
+        Key @(',') | Out-Null; Settled { param($s) $s.position -lt $p1 } 4000 | Out-Null
         $b2 = Read-FrameBarcode
         Check "$name : step +1 / -1 moves exactly one real frame" ($b0 -ge 0 -and $b1 -eq $b0 + 1 -and $b2 -eq $b0) "shown $b0 -> $b1 -> $b2"
         Check "$name : (info) estimate at 4.5 s" $true "≈F $($d.frame) vs real $b0"
@@ -151,13 +151,13 @@ Test 'frames-vfr' {
     if (Test-Path (Join-Path $frMedia $avi)) {
         Ctl 'open' @((Join-Path $frMedia $avi)) | Out-Null
         WaitFor { param($d) $d.path -like "*$avi" -and $d.frameCount -gt 0 } 8000 $avi | Out-Null
-        Start-Sleep -Milliseconds 400
+        Settled { param($d) $null -ne $d.frameTiming } | Out-Null   # the probe has answered
         $f = Get-FrameFlags
         Check "$avi : unreadable container -> frame numbers marked approximate, no VFR claim" ($null -eq $f.Vfr -and $f.Approx -eq $true) "vfr=$($f.Vfr) approx=$($f.Approx) $($f.Timing)"
     }
     Ctl 'open' @($clip1) | Out-Null
     $d = WaitFor { param($d) $d.path -like '*clip01*' -and $d.frameCount -gt 0 } 6000 'clip01'
-    Start-Sleep -Milliseconds 200
+    Settled { param($d) $null -ne $d.frameTiming } | Out-Null
     $f = Get-FrameFlags
     Check 'next file (clip01, CFR) clears the VFR state' ($f.Vfr -eq $false -and $f.Approx -eq $false) "vfr=$($f.Vfr) approx=$($f.Approx)"
 }
