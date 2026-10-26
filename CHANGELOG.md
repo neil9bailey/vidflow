@@ -3,7 +3,10 @@
 Notable changes to VidFlow Player. Versions follow [Semantic Versioning](https://semver.org);
 the release workflow copies the section for the tagged version into the release notes.
 
-## [1.0.0-beta.5] - Unreleased
+## [1.0.0-beta.5] - 2026-10-26
+
+Changes since 1.0.0-beta.4; the full history is in
+[CHANGELOG.md](https://github.com/neil9bailey/vidflow/blob/main/CHANGELOG.md).
 
 ### Added
 - Microsoft Store edition (listing coming soon): the player can now be packaged for the Store,
@@ -12,6 +15,10 @@ the release workflow copies the section for the tagged version into the release 
   there, and it keeps its settings in its own folder (copied from the portable exe's on first start).
 - Releases carry a GitHub build-provenance attestation for `VidFlow.exe` and the zip
   (`gh attestation verify VidFlow.exe --repo neil9bailey/vidflow`).
+
+### Changed
+- Releases include the playback engine's complete corresponding source: every library inside it at
+  the exact revision the build used, with a manifest of versions and licences.
 
 ## [1.0.0-beta.4] - 2026-10-25
 
