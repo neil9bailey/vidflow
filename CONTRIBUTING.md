@@ -55,7 +55,9 @@ audio sent to mpv's null output. New tests must keep to that:
 
 - One topic per pull request, with the tests you ran listed in the description.
 - Add a line to CHANGELOG.md under the upcoming version for anything users will notice.
-- CI must be green: it builds the exe and runs the core tests.
+- CI must be green: it builds the exe, runs the core tests and checks the Store package builds.
+- Code that behaves differently in the Store edition checks `AppInfo.IsPackaged`; the e2e suite
+  simulates it with `VIDFLOW_SIMULATE_PACKAGED=1` (`tools\e2e.d\45-store.ps1`).
 
 ## Releases (maintainers)
 
@@ -66,7 +68,11 @@ audio sent to mpv's null output. New tests must keep to that:
    the engine's corresponding source and SHA256SUMS.txt. Check it, then press Publish. (Re-running
    the workflow makes a second draft; delete the older one.) The engine source is copied from the
    engine pre-release, so after an engine change run the Engine source workflow first
-   (docs/ENGINE-SOURCE.md).
+   (docs/ENGINE-SOURCE.md). The exe and zip also get a build-provenance attestation.
+5. Microsoft Store: once the Partner Center identity is set up, the same run builds the
+   **store-msix** artifact to upload in a new Store submission (docs/STORE.md).
+6. winget, stable releases only: after publishing, generate and submit the manifests
+   (docs/WINGET.md).
 
 ## Licence
 

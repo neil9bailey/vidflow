@@ -161,6 +161,15 @@ namespace VidFlow.Core
             get { return All.Select(a => a.Category).Distinct(); }
         }
 
+        // Actions the Store edition leaves to the Store and to Windows (updates, file types). Menus
+        // and shortcut lists leave them out there; saved key bindings for them are kept.
+        public static bool IsHiddenInEdition(string id) { return IsHiddenInEdition(id, AppInfo.IsPackaged); }
+
+        internal static bool IsHiddenInEdition(string id, bool packaged)
+        {
+            return packaged && (id == ActionIds.CheckForUpdates || id == ActionIds.RegisterFileTypes || id == ActionIds.UnregisterFileTypes);
+        }
+
         private static IReadOnlyList<ActionDef> Build()
         {
             var l = new List<ActionDef>();

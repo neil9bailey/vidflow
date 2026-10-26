@@ -1,7 +1,8 @@
 name: Build
 
 # Every push to main and every pull request: fetch the pinned engine, build the single-file exe,
-# run the core tests and keep the packed result as a workflow artifact for 30 days.
+# run the core tests, check that the Microsoft Store package still builds, and keep the packed
+# result as a workflow artifact for 30 days.
 # (The end-to-end suite needs generated test media and a desktop session; it runs locally, see
 # CONTRIBUTING.md.)
 
@@ -53,6 +54,9 @@ jobs:
 
       - name: Package
         run: ./tools/package-release.ps1 -Version $env:VIDFLOW_VERSION -OutDir obj/release-assets
+
+      - name: Check the Store package builds (test identity, not uploaded)
+        run: ./tools/package-store.ps1 -Version $env:VIDFLOW_VERSION
 
       - name: Upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

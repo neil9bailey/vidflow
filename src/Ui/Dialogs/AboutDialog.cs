@@ -48,7 +48,7 @@ namespace VidFlow.Ui.Dialogs
                 content.Controls.Add(_icon, 0, 0);
                 content.SetRowSpan(_icon, 4);
 
-                var title = CreateLabel(AppInfo.Name + " " + AppInfo.Version, false, 16f, FontStyle.Bold);
+                var title = CreateLabel(AppInfo.Name + " " + AppInfo.Version + (AppInfo.IsPackaged ? " (Microsoft Store)" : ""), false, 16f, FontStyle.Bold);
                 OnDpi(() => title.Margin = Pad(0, 0, 0, 0));
                 content.Controls.Add(title, 1, 0);
                 var tagline = CreateLabel("A lightweight video player for quickly reviewing short clips.", true);

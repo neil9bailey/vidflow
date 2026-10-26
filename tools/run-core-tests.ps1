@@ -6,7 +6,7 @@
 #>
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-& (Join-Path $root 'build.ps1') -Harness core-tests -Files (Join-Path $root 'tools\tests\CoreTests.cs')
+& (Join-Path $root 'build.ps1') -Harness core-tests -Files (Join-Path $root 'tools\tests\CoreTests.cs'), (Join-Path $root 'src\Ui\FileAssociations.cs'), (Join-Path $root 'src\Media\Playlist.cs')
 if ($LASTEXITCODE -ne 0) { throw "core tests did not build" }
 $exe = Join-Path $root 'obj\harness\core-tests\core-tests.exe'
 $out = Join-Path $root 'obj\harness\core-tests\results.txt'

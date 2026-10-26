@@ -233,6 +233,7 @@ ExtraMpvOptions=ao=null
         $json =((Ctl 'menu' @('context')) | ConvertFrom-Json) | ConvertTo-Json -Depth 10 -Compress
         Check 'with UpdateRepo: "Check for Updates" listed and enabled' ($json -match '"text":"Check for Updates[^"]*","shortcut":"[^"]*","checked":false,"enabled":true') ''
         Check 'no update request made' ((Dump).update.checks -eq 0) ''
+        Check 'not the Store edition: Open With registration listed' ((Dump).update.packaged -eq $false -and $json -match 'Open With') ''
     } finally {
         try { Ctl 'quit' | Out-Null } catch { }
         if (-not $p.WaitForExit((Scaled 6000))) { try { $p.Kill() } catch { } }

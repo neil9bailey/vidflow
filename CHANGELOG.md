@@ -3,6 +3,16 @@
 Notable changes to VidFlow Player. Versions follow [Semantic Versioning](https://semver.org);
 the release workflow copies the section for the tagged version into the release notes.
 
+## [1.0.0-beta.5] - Unreleased
+
+### Added
+- Microsoft Store edition (listing coming soon): the player can now be packaged for the Store,
+  which signs it (no security warnings) and keeps it updated. That edition leaves updates to the
+  Store and file types to Windows, so Check for Updates and the "Open With" registration are hidden
+  there, and it keeps its settings in its own folder (copied from the portable exe's on first start).
+- Releases carry a GitHub build-provenance attestation for `VidFlow.exe` and the zip
+  (`gh attestation verify VidFlow.exe --repo neil9bailey/vidflow`).
+
 ## [1.0.0-beta.4] - 2026-10-25
 
 First public build, from https://github.com/neil9bailey/vidflow.
@@ -23,7 +33,7 @@ Renamed from Glance to VidFlow Player. Glance settings, shortcuts, recent files 
 are copied across on first start; the old files are left untouched.
 
 ### Added
-- **Cull mode** (C): P / X / U pick, reject or clear and move to the next clip; 1-5 and 0 rate;
+- **Cull mode** (C): P / X pick or reject and move to the next clip, U clears; 1-5 and 0 rate;
   N jumps to the next undecided clip; F5-F9 move the clip to a bin folder.
 - **Apply** (Ctrl+Enter): picks go to a Keep folder and rejects to the Recycle Bin, after a summary.
 - Undo and redo (Ctrl+Z / Ctrl+Y) for every decision, move, rename and apply.

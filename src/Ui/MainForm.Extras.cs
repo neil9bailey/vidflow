@@ -33,9 +33,12 @@ namespace VidFlow.Ui
             Action<string, Action, Func<bool>, Func<bool>> r = (id, run, chk, en) => _actions.Register(id, run, chk, en);
             r(ActionIds.ExportMarkersCsv, ExportMarkersCsv, null, () => TotalMarkerCount() > 0);
             r(ActionIds.ExportMarkersEdl, ExportMarkersEdl, null, () => HasMedia && Fps > 0 && CurrentMarkers().Count > 0);
-            r(ActionIds.CheckForUpdates, CheckForUpdates, null, () => UpdateCheck.IsValidRepo(_settings.UpdateRepo));
+            r(ActionIds.CheckForUpdates, CheckForUpdates, null, UpdatesEnabled);
             r(ActionIds.ShowQuickStart, ShowQuickStart, null, null);
         }
+
+        // The Store edition is updated by the Store, so it never offers GitHub releases.
+        private bool UpdatesEnabled() { return !AppInfo.IsPackaged && UpdateCheck.IsValidRepo(_settings.UpdateRepo); }
 
         partial void ExtrasInit()
         {
@@ -72,7 +75,8 @@ namespace VidFlow.Ui
             d["update"] = new Dictionary<string, object>
             {
                 { "repo", _settings.UpdateRepo ?? "" },
-                { "enabled", UpdateCheck.IsValidRepo(_settings.UpdateRepo) },
+                { "enabled", UpdatesEnabled() },
+                { "packaged", AppInfo.IsPackaged },
                 { "busy", _updateBusy },
                 { "checks", _updateChecks },
                 { "dialogOpen", _updateDialogOpen },
@@ -296,7 +300,7 @@ namespace VidFlow.Ui
         private void CheckForUpdates()
         {
             string repo = (_settings.UpdateRepo ?? "").Trim();
-            if (!UpdateCheck.IsValidRepo(repo)) return;
+            if (!UpdatesEnabled()) return;
             if (_updateBusy)
             {
                 ShowOsd("Already checking for updates…", true);
