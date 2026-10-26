@@ -72,8 +72,9 @@ Steps marked **you** need your own account or identity.
    Start *VidFlow Player* from the Start menu and check: a clip plays; Help shows no Check for
    Updates; About says "(Microsoft Store)"; Settings › Advanced › Open settings folder opens
    `...\Packages\<family>\LocalState\VidFlow`, and changed settings survive a restart;
-   right-click a video › Open with lists VidFlow Player. Then remove it with
-   `Get-AppxPackage *VidFlow* | Remove-AppxPackage`.
+   right-click a video › Open with lists VidFlow Player, and choosing it opens and plays that clip;
+   select three videos in Explorer and open them with VidFlow together: all three are queued in one
+   window. Then remove it with `Get-AppxPackage *VidFlow* | Remove-AppxPackage`.
 7. **You:** in Partner Center, start a submission:
    - **Packages:** upload the `.msix`.
    - **Pricing and availability:** Free; all markets.
